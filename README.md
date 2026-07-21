@@ -9,7 +9,7 @@ arbitrariamente la vida o el daño.
 
 - Minecraft 1.20.1
 - Fabric Loader 0.18.4
-- Fabric API 0.92.6+1.20.1
+- Fabric API 0.92.11+1.20.1
 - Yarn mappings 1.20.1+build.10
 - Java 17
 
@@ -24,4 +24,3 @@ dependencias obligatorias.
 ```
 
 El artefacto remapeado se genera en `build/libs/`.
-

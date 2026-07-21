@@ -3,7 +3,9 @@
 ## Estado y plataforma
 
 El repositorio apunta a Minecraft 1.20.1 con Fabric Loader 0.18.4, Yarn
-1.20.1+build.10, Fabric API 0.92.6+1.20.1 y Java 17. El MVP es autoritativo del
+1.20.1+build.10, Fabric API 0.92.11+1.20.1 y bytecode Java 17. La máquina de
+desarrollo inspeccionada dispone de Temurin 21, que compila con `--release 17`.
+El MVP es autoritativo del
 servidor: no necesita entrypoint cliente, paquetes personalizados ni una interfaz gráfica.
 
 La configuración descrita aquí ya tiene modelo, validación y carga en
