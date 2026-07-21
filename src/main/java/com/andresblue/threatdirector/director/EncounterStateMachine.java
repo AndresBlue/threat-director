@@ -82,17 +82,19 @@ public final class EncounterStateMachine {
     }
 
     private TransitionResult stepStalking(EncounterRuntime runtime, EncounterSnapshot snapshot, long elapsed) {
-        if (snapshot.contactAgeTicks() >= 100 && elapsed >= durations.stalkingMax()) {
+        if (snapshot.contactAgeTicks() >= durations.contactLoss()
+                && elapsed >= durations.stalkingMax()) {
             return transition(runtime, EncounterState.ABORTED, TransitionCause.PHASE_TIMEOUT, snapshot);
         }
-        if (elapsed >= durations.stalkingMin() && snapshot.contactAgeTicks() < 100) {
+        if (elapsed >= durations.stalkingMin()
+                && snapshot.contactAgeTicks() < durations.contactLoss()) {
             return transition(runtime, EncounterState.POSITIONING, TransitionCause.STALKING_COMPLETE, snapshot);
         }
         return TransitionResult.unchanged(runtime);
     }
 
     private TransitionResult stepPositioning(EncounterRuntime runtime, EncounterSnapshot snapshot, long elapsed) {
-        if (snapshot.contactAgeTicks() >= 100) {
+        if (snapshot.contactAgeTicks() >= durations.contactLoss()) {
             return transition(runtime, EncounterState.SEARCHING, TransitionCause.CONTACT_LOST, snapshot);
         }
         int readyRequired = Math.max(1, (int) Math.ceil(snapshot.livingMobs() * .60));
@@ -108,7 +110,7 @@ public final class EncounterStateMachine {
     }
 
     private TransitionResult stepEngaging(EncounterRuntime runtime, EncounterSnapshot snapshot, long elapsed) {
-        if (snapshot.contactAgeTicks() >= 100) {
+        if (snapshot.contactAgeTicks() >= durations.contactLoss()) {
             return transition(runtime, EncounterState.SEARCHING, TransitionCause.CONTACT_LOST, snapshot);
         }
         if (snapshot.distress() >= .70) {

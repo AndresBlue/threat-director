@@ -6,7 +6,16 @@ public final class AdventureIntensityCalculator {
     private AdventureIntensityCalculator() {}
 
     public static AdventureIntensityBreakdown calculate(AdventureSignals signals) {
+        return calculate(signals, 10.0, 10.0, 30.0);
+    }
+
+    public static AdventureIntensityBreakdown calculate(
+            AdventureSignals signals,
+            double groupCap,
+            double contextCap,
+            double stressPenaltyCap) {
         double groupPower = groupPower(signals.individualPowerScores());
+        double strongestPower = strongestPower(signals.individualPowerScores());
         double environment = .25 * unit(signals.night())
                 + .20 * unit(signals.darkness())
                 + .18 * unit(signals.dimensionThreat())
@@ -33,8 +42,14 @@ public final class AdventureIntensityCalculator {
                 + .20 * deathMemory;
         double load = Math.max(unit(signals.entityLoad()), unit(signals.planningLoad()));
 
-        double target = 100.0 * unit(.05 + .50 * groupPower + .22 * environment
-                + .13 * readiness + .10 * dominance - .30 * distress - .15 * load);
+        double groupScale = finiteNonNegative(groupCap) / 10.0;
+        double contextScale = finiteNonNegative(contextCap) / 10.0;
+        double stressScale = finiteNonNegative(stressPenaltyCap) / 30.0;
+        double groupUplift = Math.max(0.0, groupPower - strongestPower);
+        double target = 100.0 * unit(.05 + .50 * strongestPower
+                + .50 * groupUplift * groupScale
+                + (.22 * environment + .13 * readiness) * contextScale
+                + .10 * dominance - .30 * distress * stressScale - .15 * load);
         return new AdventureIntensityBreakdown(groupPower, environment, readiness, dominance, distress, load, target);
     }
 
@@ -68,6 +83,30 @@ public final class AdventureIntensityCalculator {
         return clamp(current + alpha * (target - current), 0.0, 100.0);
     }
 
+    public static double smooth(
+            double current,
+            double target,
+            long deltaTicks,
+            int sampleIntervalTicks,
+            double configuredAlpha) {
+        double baseAlpha = clamp(configuredAlpha, 1.0e-6, 1.0);
+        if (target < current) {
+            baseAlpha = Math.min(1.0, baseAlpha * 4.0);
+        }
+        double intervals = Math.max(0L, deltaTicks) / (double) Math.max(1, sampleIntervalTicks);
+        double effectiveAlpha = 1.0 - StrictMath.pow(1.0 - baseAlpha, intervals);
+        return clamp(current + effectiveAlpha * (target - current), 0.0, 100.0);
+    }
+
+    private static double strongestPower(List<Double> individualScores) {
+        if (individualScores == null) return 0.0;
+        return individualScores.stream()
+                .filter(java.util.Objects::nonNull)
+                .filter(Double::isFinite)
+                .mapToDouble(score -> unit(score / 100.0))
+                .max().orElse(0.0);
+    }
+
     private static double finiteNonNegative(double value) {
         return Double.isFinite(value) ? Math.max(0.0, value) : 0.0;
     }
@@ -90,8 +129,17 @@ public final class AdventureIntensityCalculator {
         }
 
         public IntensityBand update(double intensity, double distress, int elapsedTicks) {
+            return update(intensity, distress, elapsedTicks, 10.0);
+        }
+
+        public IntensityBand update(
+                double intensity,
+                double distress,
+                int elapsedTicks,
+                double hysteresisPoints) {
             IntensityBand desiredUp = upwardBand(intensity);
-            IntensityBand desiredDown = downwardBand(intensity, band);
+            IntensityBand desiredDown = downwardBand(
+                    intensity, band, Math.max(0.0, hysteresisPoints));
             if (desiredUp.ordinal() > band.ordinal()) {
                 pendingDownTicks = 0;
                 pendingUpTicks += Math.max(0, elapsedTicks);
@@ -124,11 +172,15 @@ public final class AdventureIntensityCalculator {
             return IntensityBand.LOW;
         }
 
-        private static IntensityBand downwardBand(double intensity, IntensityBand current) {
+        private static IntensityBand downwardBand(
+                double intensity, IntensityBand current, double hysteresisPoints) {
             return switch (current) {
-                case EXTREME -> intensity < 75.0 ? IntensityBand.HIGH : IntensityBand.EXTREME;
-                case HIGH -> intensity < 55.0 ? IntensityBand.TACTICAL : IntensityBand.HIGH;
-                case TACTICAL -> intensity < 30.0 ? IntensityBand.LOW : IntensityBand.TACTICAL;
+                case EXTREME -> intensity < 85.0 - hysteresisPoints
+                        ? IntensityBand.HIGH : IntensityBand.EXTREME;
+                case HIGH -> intensity < 65.0 - hysteresisPoints
+                        ? IntensityBand.TACTICAL : IntensityBand.HIGH;
+                case TACTICAL -> intensity < 40.0 - hysteresisPoints
+                        ? IntensityBand.LOW : IntensityBand.TACTICAL;
                 case LOW -> IntensityBand.LOW;
             };
         }

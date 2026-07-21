@@ -37,11 +37,11 @@ Fabric lifecycle/events
         ↓
 ThreatDirectorRuntime
         ↓
-DirectorService ── PlayerObservation/Intensity
+PlayerObservationService ── PerformanceGovernor
         ↓
 EncounterManager ── EncounterController
         ↓
-Blackboard ── SectorAnalyzer/PatternPlan
+PopulationService ── GroupBlackboard ── planners tácticos
         ↓
 MobOrderStore
         ↓
@@ -55,12 +55,13 @@ mediante interfaces; no conocen el runtime que los consume.
 
 ### Runtime
 
-`ThreatDirectorRuntime` existe una vez por `MinecraftServer`. Posee la configuración activa, el
-scheduler, el director, los encuentros, la persistencia y la telemetría. Se crea en
+`ThreatDirectorRuntime` existe una vez por `MinecraftServer`. Posee la configuración activa, las
+observaciones, el gobernador, los encuentros y la telemetría. Se crea en
 `SERVER_STARTED` y se cierra en `SERVER_STOPPING`; no debe sobrevivir como singleton a un segundo
 servidor integrado.
 
-`TickWorkScheduler` distribuye perfiles y controladores entre ticks. Ningún acceso a entidades,
+`EncounterManager` rota el primer controlador atendido y comparte entre todos los encuentros el
+presupuesto de operaciones y la deadline best-effort de cada tick. Ningún acceso a entidades,
 mundos, chunks o navegación se ejecuta fuera del hilo del servidor.
 
 ### Director e intensidad
@@ -77,11 +78,13 @@ penalización  0..30
 ```
 
 La intensidad cruda se limita a 0..100 y se suaviza con EMA. Una banda no cambia hasta superar la
-histéresis configurada. Un cambio de equipo invalida el caché; salud, absorción, inventario y
-contexto se observan periódicamente.
+histéresis. En el MVP, equipo, salud, absorción, inventario y contexto se capturan cada 100 ticks;
+una caché invalidada por eventos de equipo es una optimización posterior.
 
-`DirectorTrack` mantiene `DORMANT`, la referencia al encuentro activo y `COOLDOWN`. Los cooldowns
-usan tiempo total del mundo, no hora del sistema ni hora del día.
+`PlayerDirectorState` mantiene intensidad, banda, memoria reciente, muerte y cooldown; el mapa de
+encuentros activos vive en `EncounterManager`. Los cooldowns usan ticks del servidor, no hora del
+sistema ni hora del día. El estado desconectado se conserva durante una ventana acotada para evitar
+que una reconexión elimine inmediatamente sus salvaguardas.
 
 ### Encuentros
 
@@ -116,12 +119,14 @@ combate ajeno. Si faltan miembros, se buscan posiciones entre 28 y 48 bloques qu
 
 Costes iniciales: zombie 1.0, skeleton 1.3, spider 1.1 y creeper 1.8. Reclutados y generados
 consumen el mismo presupuesto. La generación de creepers por el director está desactivada de forma
-predeterminada; un segundo esqueleto es el fallback seguro.
+predeterminada. Cuando `mobGriefing=true`, tampoco se reclutan creepers naturales salvo opt-in
+explícito; con `mobGriefing=false` sí son elegibles porque su explosión vanilla no rompe terreno.
 
 ### Táctica e IA vanilla
 
-El entorno inmediato se representa mediante ocho sectores horizontales relativos a la mirada del
-jugador. Una snapshot produce como máximo 16 candidatos en un anillo de 10 a 18 bloques. Primero se
+El entorno inmediato se representa mediante diez sectores relativos a la mirada, la altura, la
+ruta de escape, la cobertura y la reserva. Una snapshot produce como máximo 16 candidatos en un
+anillo configurable de 10 a 18 bloques por defecto. Primero se
 hacen comprobaciones baratas y luego, como máximo, dos intentos de path por mob. Se recalcula cada
 40 ticks, tras desplazamiento significativo o fallo de ruta.
 
@@ -142,18 +147,14 @@ teletransporta y no se recalcula navegación cada tick.
 ## Eventos Fabric
 
 - `ServerLifecycleEvents.SERVER_STARTED` y `SERVER_STOPPING`: runtime y cierre.
-- `ServerTickEvents.END_SERVER_TICK`: scheduler.
+- `ServerTickEvents.END_SERVER_TICK`: observación, gobernador, scheduler y encuentros.
 - `CommandRegistrationCallback`: comandos.
-- `ServerEntityEvents.EQUIPMENT_CHANGE`: invalidación del power cache.
-- `ServerEntityEvents.ENTITY_UNLOAD`: limpieza de miembros.
 - `ServerLivingEntityEvents.AFTER_DEATH`: bajas y memoria reciente.
-- `ServerPlayConnectionEvents.DISCONNECT`: recalcular o abortar.
-- `ServerEntityWorldChangeEvents.AFTER_PLAYER_CHANGE_WORLD`: cancelar persecución.
-- `ServerPlayerEvents.AFTER_RESPAWN`: cooldown y limpieza de presión.
 
-Fabric API 1.20.1 no dispone de `ServerLivingEntityEvents.AFTER_DAMAGE`. El MVP puede observar el
-daño entrante sin cancelarlo y combinarlo con diferencias de salud/absorción; no debe compilar
-contra un evento de versiones posteriores.
+Logout, cambio de dimensión, unload y cambios de salud se detectan al resolver UUID y validar el
+estado vivo en cada ciclo del controlador. Fabric API 1.20.1 no dispone de
+`ServerLivingEntityEvents.AFTER_DAMAGE`; el MVP infiere daño sin cancelarlo mediante diferencias de
+salud/absorción y mantiene una comprobación directa de salud crítica en el scheduler.
 
 ## Configuración
 
@@ -197,11 +198,12 @@ nuevos encuentros.
 
 ## Persistencia y telemetría
 
-Un `PersistentState` del Overworld guarda intensidad suavizada, cooldown y resumen reciente por
-UUID. Los controladores y mobs activos no se serializan: tras un reinicio se liberan a vanilla.
+En el MVP, intensidad, memoria reciente y cooldown viven en memoria y se limpian al reiniciar el
+servidor. Los controladores tampoco se serializan: tras un reinicio sus mobs quedan completamente
+en manos de vanilla. Persistir el resumen por UUID mediante `PersistentState` es trabajo de Fase 2.
 
 La telemetría, desactivada por defecto, usa NDJSON local bajo el directorio del mundo. Una cola
-acotada evita bloquear ticks; un error de archivo deshabilita el sink, no el director. No existe
+acotada evita bloquear ticks; un error de archivo queda contenido y contabilizado sin afectar al director. No existe
 ninguna salida de red.
 
 ## Gobernador de rendimiento
@@ -219,25 +221,73 @@ se recupera más lentamente:
 6 retorno temporal a vanilla
 ```
 
-Además de los umbrales de tick, cada tick posee un presupuesto de microsegundos y de operaciones de
-planner. El trabajo restante se aplaza; nunca se carga un chunk para completar una táctica.
+Además de los umbrales de tick, la configuración reserva un presupuesto global de microsegundos. El
+MVP combina una deadline best-effort con límites deterministas globales de operaciones, candidatos y
+frecuencia. Una consulta de pathfinding ya iniciada no puede interrumpirse a mitad de llamada. Nunca
+se carga un chunk para completar una táctica.
 
 ## Compatibilidad futura
 
-El core publicará un entrypoint `threatdirector` mediante `ThreatDirectorIntegration`. Los adapters
+El core publica el entrypoint `threatdirector` mediante `ThreatDirectorIntegration`. Los adapters
 que importen clases de otro mod vivirán en jars separados y declararán esa dependencia en su propio
 `fabric.mod.json`. Cada integración registra evaluadores, traits, costes, claims y plantillas dentro
 de un bloque aislado; una excepción deshabilita solo ese adapter.
 
-Los claims devuelven `ALLOW`, `DENY` o `UNKNOWN`. Cualquier función destructiva interpreta
-`UNKNOWN` como denegación. Prominence II se identifica por componentes y versiones reales, no por
+Los claims devuelven `UNPROTECTED`, `PROTECTED` o `UNKNOWN`. Cualquier función destructiva interpreta
+`UNKNOWN` como denegación. Prominence II se identificará por componentes y versiones reales, no por
 asumir un ID del modpack.
 
 ## Estrategia de pruebas
 
-- JUnit puro para config, intensidad, smoothing, budget, roles, patrones, FSM y gobernador.
-- GameTests para goals, spawn seguro, lifecycle y garantía de cero cambios de bloques.
-- Arranque dedicado con solo Fabric API y Threat Director.
+- El MVP ejecuta JUnit puro para config, intensidad, smoothing, budget, roles, patrones, FSM,
+  compatibilidad, telemetría, simulación de breach y gobernador.
+- Los GameTests de goals, spawn seguro y lifecycle quedan como siguiente nivel de cobertura.
+- El arranque dedicado se prueba con solo Fabric API y Threat Director.
 - Escenarios manuales reproducibles descritos en `MANUAL_TESTS.md`.
 - Cada incremento debe ejecutar `gradlew.bat build`; no se afirma compatibilidad de runtime sin
   arrancar cliente y servidor.
+
+## Puntos de extensión
+
+- `PowerEvaluationPipeline`: evaluadores de atributos, accesorios, hechizos o componentes.
+- `MobTraitRegistry`: providers de traits para entidades externas.
+- `ThreatCostRegistry`: costes conocidos o estimaciones conservadoras.
+- `ThreatDirectorIntegration`: entrypoint Fabric transaccional para jars de compatibilidad.
+- `ClaimProtectionService`: adapters trivaluados; un fallo nunca concede permiso destructivo.
+- `PatternSelector`: nuevos patrones sin modificar el controlador de población.
+- `TelemetryRecorder`: sink local reemplazable; la API no contempla transporte de red.
+
+Los adapters que importen clases de otro mod deben vivir fuera del jar core. El registrar transaccional
+solo publica sus extensiones si `register` termina por completo; una excepción descarta el staging.
+
+## Riesgos de compatibilidad
+
+| Riesgo | Mitigación del MVP |
+| --- | --- |
+| Conflicto con IA de otro mod | Solo cuatro tipos vanilla exactos; goals inactivos sin orden |
+| Pathfinding costoso | Dos paths máximos por mob y planificación espaciada |
+| Spawn injusto | Distancia 28–48, chunks cargados, cono frontal excluido y reglas vanilla |
+| Saturación de entidades | Threat Budget, cap local y máximo de controladores |
+| Creepers/griefing | Sin spawn dirigido; con `mobGriefing=true` tampoco se reclutan sin opt-in |
+| Claim desconocido | `UNKNOWN` falla cerrado; breaching real no existe en el MVP |
+| Adapter roto o ausente | Carga aislada, staging transaccional y fallback vanilla |
+| Reinicio durante encuentro | No se persiste el controlador; los goals quedan sin órdenes y ceden a vanilla |
+| Modpack con JDK/toolchain distinto | JAR Java 17 y dependencias Fabric fijadas por versión |
+
+Prominence II todavía requiere inventariar sus componentes reales, versiones, atributos, accesorios,
+claims, dimensiones y mobs. No se asume que el modpack posea un único mod ID.
+
+## Plan incremental por commits
+
+1. `chore: scaffold Fabric 1.20.1 server mod` — wrapper, metadata y entrypoint mínimo.
+2. `feat: add validated Vanilla Plus server config` — JSON atómico, schema y documentación.
+3. `chore: align Fabric 1.20.1 toolchain` — Loader/API/Yarn/Loom/Gradle verificados.
+4. `feat: implement adaptive tactical core` — intensidad, budget, FSM, roles, sectores y patrones.
+5. `feat: add optional integration API and local telemetry` — SPI, claims y NDJSON.
+6. `feat: make vanilla encounters playable` — población, goals, controller, comandos y runtime.
+
+Después del MVP:
+
+1. Fase 2: GameTests, memoria persistente, breaching real protegido, más mobs/patrones y élites.
+2. Fase 3: adapters genéricos de equipo, accesorios, magia, claims y entidades desconocidas.
+3. Fase 4: integración opcional específica de Prominence II y pruebas dentro del modpack completo.

@@ -1,10 +1,17 @@
 package com.andresblue.threatdirector.performance;
 
+import com.andresblue.threatdirector.config.ThreatDirectorConfig;
+
+import java.util.Arrays;
+
 public final class PerformanceGovernor {
-    private static final double[] MSPT_ENTRY = {35, 40, 45, 50, 60, 80};
     private static final double[] CAPACITY_ENTRY = {.75, .90, 1.00, 1.10, 1.25, 1.50};
-    private static final double[] MSPT_RECOVERY = {32, 37, 42, 47, 55, 70};
     private static final double[] CAPACITY_RECOVERY = {.65, .80, .90, 1.00, 1.15, 1.35};
+
+    private double[] msptEntry = {35, 40, 45, 50, 60, 100};
+    private double[] msptRecovery = {32, 37, 42, 47, 55, 70};
+    private int degradeSamples = 3;
+    private int recoverSamples = 30;
 
     private int level;
     private int badSamples;
@@ -18,27 +25,56 @@ public final class PerformanceGovernor {
         this.level = Math.max(0, Math.min(6, initialLevel));
     }
 
+    public PerformanceGovernor(ThreatDirectorConfig.PerformanceSection section) {
+        this();
+        configure(section);
+    }
+
+    public void configure(ThreatDirectorConfig.PerformanceSection section) {
+        double[] configuredEntry = {
+                section.level1TickTimeMs(),
+                section.level2TickTimeMs(),
+                section.level3TickTimeMs(),
+                section.level4TickTimeMs(),
+                section.level5TickTimeMs(),
+                section.level6TickTimeMs()
+        };
+        int configuredDegrade = samplesFor(section.degradeAfterTicks());
+        int configuredRecover = samplesFor(section.recoverAfterTicks());
+        if (Arrays.equals(msptEntry, configuredEntry)
+                && degradeSamples == configuredDegrade
+                && recoverSamples == configuredRecover) {
+            return;
+        }
+        msptEntry = configuredEntry;
+        msptRecovery = Arrays.stream(configuredEntry).map(value -> value * 0.90).toArray();
+        degradeSamples = configuredDegrade;
+        recoverSamples = configuredRecover;
+        badSamples = 0;
+        goodSamples = 0;
+    }
+
     public GovernorUpdate update(LoadSample sample) {
         int previous = level;
         double mspt = sample.effectiveMspt();
         double capacity = sample.capacityRatio();
-        int desired = Math.max(levelFor(mspt, MSPT_ENTRY), levelFor(capacity, CAPACITY_ENTRY));
+        int desired = Math.max(levelFor(mspt, msptEntry), levelFor(capacity, CAPACITY_ENTRY));
 
-        if (mspt >= 100.0 || capacity >= 1.75) {
+        if (mspt >= msptEntry[5] || capacity >= 1.75) {
             level = 6;
             badSamples = 0;
             goodSamples = 0;
         } else if (desired > level) {
             badSamples++;
             goodSamples = 0;
-            if (badSamples >= 3) {
+            if (badSamples >= degradeSamples) {
                 level++;
                 badSamples = 0;
             }
         } else if (level > 0 && safeToRecover(level, mspt, capacity)) {
             goodSamples++;
             badSamples = 0;
-            if (goodSamples >= 30) {
+            if (goodSamples >= recoverSamples) {
                 level--;
                 goodSamples = 0;
             }
@@ -72,9 +108,9 @@ public final class PerformanceGovernor {
         };
     }
 
-    private static boolean safeToRecover(int currentLevel, double mspt, double capacity) {
+    private boolean safeToRecover(int currentLevel, double mspt, double capacity) {
         int index = currentLevel - 1;
-        return mspt < MSPT_RECOVERY[index] && capacity < CAPACITY_RECOVERY[index];
+        return mspt < msptRecovery[index] && capacity < CAPACITY_RECOVERY[index];
     }
 
     private static int levelFor(double value, double[] thresholds) {
@@ -84,5 +120,9 @@ public final class PerformanceGovernor {
             else break;
         }
         return result;
+    }
+
+    private static int samplesFor(int ticks) {
+        return Math.max(1, (int) Math.ceil(ticks / 20.0));
     }
 }

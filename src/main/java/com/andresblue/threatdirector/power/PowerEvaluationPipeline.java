@@ -42,7 +42,12 @@ public final class PowerEvaluationPipeline {
     }
 
     public PowerReport evaluate(PlayerPowerSnapshot snapshot) {
+        return evaluate(snapshot, Map.of());
+    }
+
+    public PowerReport evaluate(PlayerPowerSnapshot snapshot, Map<PowerAxis, Integer> configuredCaps) {
         Objects.requireNonNull(snapshot, "snapshot");
+        Objects.requireNonNull(configuredCaps, "configuredCaps");
         Map<Evidence, ScoredContribution> bestEvidence = new HashMap<>();
         List<String> warnings = new ArrayList<>();
 
@@ -68,7 +73,8 @@ public final class PowerEvaluationPipeline {
                     continue;
                 }
                 double confidence = clamp01(contribution.confidence());
-                int raw = Math.min(contribution.milliPoints(), contribution.axis().cap());
+                int axisCap = configuredCap(contribution.axis(), configuredCaps);
+                int raw = Math.min(contribution.milliPoints(), axisCap);
                 int effective = (int) Math.round(raw * confidence);
                 ScoredContribution scored = new ScoredContribution(evaluator.id(), contribution, effective);
                 Evidence key = new Evidence(contribution.axis(), contribution.evidenceKey());
@@ -88,7 +94,9 @@ public final class PowerEvaluationPipeline {
         }
         for (ScoredContribution scored : accepted) {
             PowerAxis axis = scored.contribution().axis();
-            totals.compute(axis, (ignored, current) -> Math.min(axis.cap(), current + scored.effectiveMilliPoints()));
+            int axisCap = configuredCap(axis, configuredCaps);
+            totals.compute(axis, (ignored, current) ->
+                    Math.min(axisCap, current + scored.effectiveMilliPoints()));
         }
         int total = totals.values().stream().mapToInt(Integer::intValue).sum();
         return new PowerReport(Math.min(100_000, total), totals, accepted, warnings);
@@ -104,6 +112,10 @@ public final class PowerEvaluationPipeline {
 
     private static double clamp01(double value) {
         return Math.max(0.0, Math.min(1.0, value));
+    }
+
+    private static int configuredCap(PowerAxis axis, Map<PowerAxis, Integer> configuredCaps) {
+        return Math.max(0, configuredCaps.getOrDefault(axis, axis.cap()));
     }
 
     private record Evidence(PowerAxis axis, String key) {}

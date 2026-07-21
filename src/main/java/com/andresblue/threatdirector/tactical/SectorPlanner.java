@@ -10,7 +10,6 @@ import java.util.Set;
 
 public final class SectorPlanner {
     private static final double[] ANGLES = {-StrictMath.PI / 8.0, 0.0, StrictMath.PI / 8.0};
-    private static final int[] RADII = {6, 9, 12};
     private static final int CALLS_PER_CANDIDATE = 4;
 
     public SectorPlan plan(SectorPlanningRequest request, TerrainProbe terrain) {
@@ -21,9 +20,10 @@ public final class SectorPlanner {
         int operations = 0;
         List<CandidatePosition> candidates = new ArrayList<>();
         Set<BlockPoint> seen = new HashSet<>();
+        int[] radii = radii(request.minimumRadius(), request.maximumRadius());
 
         outer:
-        for (int radius : RADII) {
+        for (int radius : radii) {
             for (double angle : ANGLES) {
                 if (operations + CALLS_PER_CANDIDATE > operationLimit || candidates.size() >= candidateLimit) break outer;
                 Vec2 direction = sectorDirection.rotate(angle);
@@ -60,6 +60,15 @@ public final class SectorPlanner {
                 .thenComparing(CandidatePosition::position));
         boolean fallback = candidates.isEmpty() || candidates.get(0).score() < 550;
         return new SectorPlan(frame, candidates, operations, fallback);
+    }
+
+    private static int[] radii(double minimum, double maximum) {
+        int low = Math.max(1, (int) Math.round(minimum));
+        int high = Math.max(low, (int) Math.round(maximum));
+        int middle = low + (high - low) / 2;
+        if (low == high) return new int[]{low};
+        if (middle == low || middle == high) return new int[]{low, high};
+        return new int[]{low, middle, high};
     }
 
     private static double distanceFit(TacticalRole role, double distance) {

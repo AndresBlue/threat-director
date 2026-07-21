@@ -3,6 +3,7 @@ package com.andresblue.threatdirector.power;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -35,6 +36,16 @@ class PowerAndIntensityTest {
         assertEquals(.7209294695715875, AdventureIntensityCalculator.groupPower(List.of(60.0, 60.0)), 1.0e-12);
         assertEquals(40.6611418471353, AdventureIntensityCalculator.smooth(40, 80, 20), 1.0e-12);
         assertEquals(77.4202794012647, AdventureIntensityCalculator.smooth(80, 40, 20), 1.0e-12);
+        assertEquals(20.0,
+                AdventureIntensityCalculator.smooth(0, 100, 100, 100, .20),
+                1.0e-12);
+    }
+
+    @Test
+    void configuredPowerCapsLimitTheMatchingAxis() {
+        PowerReport report = PowerEvaluationPipeline.vanilla().evaluate(
+                snapshot(20, 8, 8, 1.6), Map.of(PowerAxis.OFFENSE, 1_000));
+        assertEquals(1_000, report.axisTotals().get(PowerAxis.OFFENSE));
     }
 
     @Test
@@ -44,6 +55,10 @@ class PowerAndIntensityTest {
         assertEquals(IntensityBand.LOW, hysteresis.update(70, 0, 199));
         assertEquals(IntensityBand.TACTICAL, hysteresis.update(70, 0, 1));
         assertEquals(IntensityBand.LOW, hysteresis.update(20, .70, 1));
+
+        AdventureIntensityCalculator.Hysteresis configurable =
+                new AdventureIntensityCalculator.Hysteresis(IntensityBand.TACTICAL);
+        assertEquals(IntensityBand.LOW, configurable.update(34, .70, 1, 5));
     }
 
     private static PowerEvaluator evaluator(String id, int points, boolean broken) {

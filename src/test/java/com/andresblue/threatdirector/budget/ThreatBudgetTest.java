@@ -36,6 +36,25 @@ class ThreatBudgetTest {
         assertEquals(250, AmbientThreat.charge(1_000, 40, false));
     }
 
+    @Test
+    void nearbyPlayersScaleBudgetWithDiminishingReturnsAndHardCaps() {
+        double solo = ThreatBudget.diminishingGroupMultiplier(1, 0.35, 1.75);
+        double duo = ThreatBudget.diminishingGroupMultiplier(2, 0.35, 1.75);
+        double trio = ThreatBudget.diminishingGroupMultiplier(3, 0.35, 1.75);
+        double quartet = ThreatBudget.diminishingGroupMultiplier(4, 0.35, 1.75);
+
+        assertEquals(1.0, solo);
+        assertEquals(1.35, duo, 0.000_001);
+        assertTrue(trio - duo < duo - solo);
+        assertTrue(quartet - trio < trio - duo);
+        assertEquals(1.75, ThreatBudget.diminishingGroupMultiplier(8, 0.35, 1.75));
+
+        ThreatBudget groupBudget = ThreatBudget.forIntensity(60, 8, 1, 0, duo);
+        assertEquals(7_425, groupBudget.total());
+        assertEquals(8, groupBudget.mobCountCap());
+        assertEquals(8, ThreatBudget.scaledMobCap(6, 8, duo));
+    }
+
     private static void assertBudget(double intensity, int expected) {
         assertEquals(expected, ThreatBudget.forIntensity(intensity, 10, 1, 0).total());
     }

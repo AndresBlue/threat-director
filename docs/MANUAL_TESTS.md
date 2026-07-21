@@ -2,10 +2,9 @@
 
 ## Alcance del documento
 
-Esta matriz define la aceptación del MVP vanilla. Los casos de configuración pueden ejecutarse en
-cuanto el bootstrap invoque `ConfigManager.load()`. Los casos de combate se ejecutan cuando estén
-implementados el runtime, los comandos y el controlador de encuentros; no describen funcionalidad
-que ya deba estar presente en el esqueleto inicial.
+Esta matriz define la aceptación manual del MVP vanilla ya implementado. Configuración, runtime,
+comandos y controlador están conectados; los casos de Prominence II y adapters concretos se marcan
+explícitamente como fases posteriores.
 
 ## Preparación
 
@@ -34,7 +33,7 @@ errores y la configuración reportada coincide con los defaults.
 
 1. Conservar una configuración válida activa.
 2. Romper la sintaxis del archivo.
-3. Ejecutar el futuro comando de recarga.
+3. Ejecutar `/threatdirector config reload`.
 
 Esperado: la recarga falla con ubicación o causa clara, el archivo no se sobrescribe y el servidor
 continúa usando exactamente la snapshot anterior.
@@ -116,12 +115,12 @@ Stalking → Positioning → Engaging → Relief.
 Repetir ENC-01 varias veces.
 
 Esperado: solo zombies, esqueletos, arañas y creepers; cada entidad consume su coste. Si los creepers
-generados están desactivados, se usa un esqueleto de fallback, aunque un creeper natural puede ser
-reclutado.
+generados están desactivados, se usa otro tipo permitido. Con `mobGriefing=true`, un creeper natural
+tampoco se recluta sin opt-in; con `mobGriefing=false`, sí puede participar.
 
 ### ENC-03 — Pinza
 
-Usar terreno plano con al menos tres miembros viables.
+Usar terreno plano con al menos cuatro miembros y dos alas viables.
 
 Esperado: se ocupan sectores opuestos antes de atacar; no hay teleport y cada destino posee path
 real. Si un lado falla, el patrón cancela o degrada a vanilla.
@@ -202,8 +201,8 @@ incapaz de responder indefinidamente.
 
 Visualizar candidatos y provocar replans desplazándose rápidamente.
 
-Esperado: nunca se superan 16 candidatos por snapshot, dos paths por mob y el presupuesto de
-operaciones por tick.
+Esperado: nunca se superan 16 candidatos por snapshot, dos paths por mob y el presupuesto global de
+operaciones por tick compartido entre formación de población y controladores activos.
 
 ### PERF-02 — servidor bajo carga
 
@@ -253,8 +252,9 @@ Esperado: toda acción destructiva se deniega. La simulación explica que no pud
 
 ## Criterio de cierre del MVP
 
-- Build, JUnit y GameTests pasan desde checkout limpio.
-- Cliente integrado y servidor dedicado arrancan sin mods externos.
+- Build y JUnit pasan desde checkout limpio; los GameTests están planificados como siguiente capa.
+- Cliente integrado y servidor dedicado deben arrancar sin mods externos; ambos son escenarios de
+  aceptación manual, no una afirmación cubierta por JUnit.
 - Se reproducen ENC-01, ENC-03 y ENC-04 con un máximo de seis mobs por defecto.
 - No existe ninguna modificación de bloques causada por BreachPlanner.
 - Un fallo de config, telemetría o integración no sustituye la última configuración válida ni

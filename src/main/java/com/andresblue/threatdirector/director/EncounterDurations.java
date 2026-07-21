@@ -7,6 +7,7 @@ public record EncounterDurations(
         long positioningMax,
         long engagingMinBeforeClimax,
         long engagingMax,
+        long contactLoss,
         long searchingMax,
         long climaxMax,
         long reliefMin,
@@ -16,6 +17,6 @@ public record EncounterDurations(
 ) {
     public static EncounterDurations vanillaPlus() {
         return new EncounterDurations(200, 800, 100, 400, 400, 2_400,
-                300, 600, 200, 600, 300, 6_000);
+                100, 300, 600, 200, 600, 300, 6_000);
     }
 }
