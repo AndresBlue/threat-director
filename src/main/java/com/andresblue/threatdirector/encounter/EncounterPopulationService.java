@@ -94,7 +94,9 @@ public final class EncounterPopulationService {
                 budget,
                 excludedMobIds,
                 effectiveMobCap,
-                config.performance().maxPlannerOperationsPerTick());
+                encounter.minMobs(),
+                config.performance().maxPlannerOperationsPerTick(),
+                Long.MAX_VALUE);
     }
 
     /** Populates while consuming no more than the manager's remaining global path allowance. */
@@ -105,6 +107,53 @@ public final class EncounterPopulationService {
             Set<UUID> excludedMobIds,
             int effectiveMobCap,
             int planningOperationBudget) {
+        return populate(
+                world,
+                target,
+                budget,
+                excludedMobIds,
+                effectiveMobCap,
+                encounter.minMobs(),
+                planningOperationBudget,
+                Long.MAX_VALUE);
+    }
+
+    /** Populates with contextual minimum and cap while reporting the operations actually spent. */
+    public EncounterPopulation populate(
+            ServerWorld world,
+            ServerPlayerEntity target,
+            ThreatBudget budget,
+            Set<UUID> excludedMobIds,
+            int effectiveMobCap,
+            int effectiveMinimumPopulation,
+            int planningOperationBudget) {
+        return populate(
+                world,
+                target,
+                budget,
+                excludedMobIds,
+                effectiveMobCap,
+                effectiveMinimumPopulation,
+                planningOperationBudget,
+                Long.MAX_VALUE);
+    }
+
+    /**
+     * Populates with both an operation allowance and an absolute monotonic deadline.
+     *
+     * <p>The deadline is checked between candidate and path operations. It cannot interrupt a
+     * pathfinder already executing, but it prevents a delayed invocation from starting the rest
+     * of a large candidate batch.
+     */
+    public EncounterPopulation populate(
+            ServerWorld world,
+            ServerPlayerEntity target,
+            ThreatBudget budget,
+            Set<UUID> excludedMobIds,
+            int effectiveMobCap,
+            int effectiveMinimumPopulation,
+            int planningOperationBudget,
+            long deadlineNanos) {
         Objects.requireNonNull(world, "world");
         Objects.requireNonNull(target, "target");
         Objects.requireNonNull(budget, "budget");
@@ -118,23 +167,27 @@ public final class EncounterPopulationService {
         int desiredTotal = Math.min(
                 Math.min(Math.max(0, effectiveMobCap), encounter.hardMaxMobs()),
                 budget.mobCountCap());
+        int minimumTotal = Math.max(encounter.minMobs(), effectiveMinimumPopulation);
 
         if (!config.enabled()) {
             diagnostics.add("Threat Director is disabled");
-            return new EncounterPopulation(List.of(), 0, diagnostics);
+            return new EncounterPopulation(List.of(), 0, diagnostics, 0);
         }
         if (target.getWorld() != world || !target.isAlive() || target.isRemoved()) {
             diagnostics.add("Target is not a live member of the supplied world");
-            return new EncounterPopulation(List.of(), 0, diagnostics);
+            return new EncounterPopulation(List.of(), 0, diagnostics, 0);
         }
-        if (desiredTotal < encounter.minMobs()) {
+        if (desiredTotal < minimumTotal) {
             diagnostics.add("Threat budget mob cap is below the configured encounter minimum");
-            return new EncounterPopulation(List.of(), 0, diagnostics);
+            return new EncounterPopulation(List.of(), 0, diagnostics, 0);
         }
 
-        int boundedPlanningBudget = Math.min(
-                config.performance().maxPlannerOperationsPerTick(),
-                Math.max(0, planningOperationBudget));
+        int boundedPlanningBudget = Math.max(0, planningOperationBudget);
+        // Recruitment and directed spawning share the same global allowance. Reserving most of it
+        // for the deficit prevents a handful of unreachable natural mobs from starving formation.
+        int recruitmentBudget = Math.min(
+                desiredTotal,
+                boundedPlanningBudget <= 1 ? boundedPlanningBudget : boundedPlanningBudget / 3);
         int initialPathChecks = recruitNaturalMobs(
                 world,
                 target,
@@ -143,9 +196,12 @@ public final class EncounterPopulationService {
                 exclusions,
                 members,
                 diagnostics,
-                boundedPlanningBudget);
+                recruitmentBudget,
+                deadlineNanos);
 
-        int nearbyHostiles = countNearbyHostiles(world, target);
+        int nearbyHostiles = deadlineReached(deadlineNanos)
+                ? encounter.maxNearbyHostiles()
+                : countNearbyHostiles(world, target);
         int spawnAttempts = 0;
         if (budget.mobCount() < desiredTotal) {
             if (!canUseDirectedSpawning(world)) {
@@ -162,19 +218,24 @@ public final class EncounterPopulationService {
                         exclusions,
                         members,
                         diagnostics,
-                        Math.max(0, boundedPlanningBudget - initialPathChecks));
+                        Math.max(0, boundedPlanningBudget - initialPathChecks),
+                        deadlineNanos);
                 spawnAttempts = result.attempts();
                 spawnedEntities.addAll(result.entities());
             }
         }
 
-        if (initialBudgetCount + members.size() < encounter.minMobs()) {
+        int planningOperations = initialPathChecks + spawnAttempts;
+        if (deadlineReached(deadlineNanos)) {
+            diagnostics.add("Planner work deadline was reached; remaining candidates were skipped");
+        }
+        if (initialBudgetCount + members.size() < minimumTotal) {
             diagnostics.add("Minimum encounter population was not reached; allocations rolled back");
             rollback(budget, members, spawnedEntities);
-            return new EncounterPopulation(List.of(), spawnAttempts, diagnostics);
+            return new EncounterPopulation(List.of(), spawnAttempts, diagnostics, planningOperations);
         }
 
-        return new EncounterPopulation(members, spawnAttempts, diagnostics);
+        return new EncounterPopulation(members, spawnAttempts, diagnostics, planningOperations);
     }
 
     private int recruitNaturalMobs(
@@ -185,7 +246,11 @@ public final class EncounterPopulationService {
             Set<UUID> excludedMobIds,
             List<Member> members,
             List<String> diagnostics,
-            int maximumPathChecks) {
+            int maximumPathChecks,
+            long deadlineNanos) {
+        if (deadlineReached(deadlineNanos)) {
+            return 0;
+        }
         double radius = encounter.recruitRadius();
         double minimumDistance = Math.min(encounter.spawnMinDistance(), tactical.positionMinRadius());
         Set<String> allowedTypes = new HashSet<>(encounter.allowedMobIds());
@@ -208,7 +273,7 @@ public final class EncounterPopulationService {
 
         int pathChecks = 0;
         for (MobEntity candidate : candidates) {
-            if (budget.mobCount() >= desiredTotal) {
+            if (budget.mobCount() >= desiredTotal || deadlineReached(deadlineNanos)) {
                 break;
             }
             if (pathChecks >= maximumPathChecks) {
@@ -245,7 +310,8 @@ public final class EncounterPopulationService {
             Set<UUID> excludedMobIds,
             List<Member> members,
             List<String> diagnostics,
-            int pathAttemptBudget) {
+            int pathAttemptBudget,
+            long deadlineNanos) {
         List<EntityType<? extends MobEntity>> spawnTypes = mobAdapter.spawnTypes(
                 encounter.allowedMobIds(), encounter.allowDirectorSpawnedCreepers());
         if (spawnTypes.isEmpty()) {
@@ -263,11 +329,13 @@ public final class EncounterPopulationService {
 
         while (budget.mobCount() < desiredTotal
                 && nearbyHostiles + spawned.size() < encounter.maxNearbyHostiles()
-                && attempts < maximumAttempts) {
+                && attempts < maximumAttempts
+                && !deadlineReached(deadlineNanos)) {
             EntityType<? extends MobEntity> type =
                     spawnTypes.get((typeOffset + attempts) % spawnTypes.size());
             attempts++;
-            Optional<MobEntity> candidate = createSafeSpawnCandidate(world, target, type, random);
+            Optional<MobEntity> candidate = createSafeSpawnCandidate(
+                    world, target, type, random, deadlineNanos);
             if (candidate.isEmpty()) {
                 continue;
             }
@@ -306,7 +374,11 @@ public final class EncounterPopulationService {
             ServerWorld world,
             ServerPlayerEntity target,
             EntityType<? extends MobEntity> type,
-            Random random) {
+            Random random,
+            long deadlineNanos) {
+        if (deadlineReached(deadlineNanos)) {
+            return Optional.empty();
+        }
         Vec3d look = target.getRotationVec(1.0F);
         double horizontalLookLengthSquared = look.x * look.x + look.z * look.z;
         double angle;
@@ -343,6 +415,9 @@ public final class EncounterPopulationService {
         int highestY = Math.min(world.getTopY() - 2, target.getBlockY() + verticalRadius);
         int lowestY = Math.max(world.getBottomY() + 1, target.getBlockY() - verticalRadius);
         for (int y = highestY; y >= lowestY; y--) {
+            if (deadlineReached(deadlineNanos)) {
+                return Optional.empty();
+            }
             BlockPos position = new BlockPos(x, y, z);
             if (!world.getWorldBorder().contains(position)
                     || !SpawnRestriction.canSpawn(type, world, SpawnReason.EVENT, position, random)
@@ -374,6 +449,10 @@ public final class EncounterPopulationService {
             if (!world.getWorldBorder().contains(mob.getBoundingBox()) || !world.isSpaceEmpty(mob)) {
                 mob.discard();
                 continue;
+            }
+            if (deadlineReached(deadlineNanos)) {
+                mob.discard();
+                return Optional.empty();
             }
             if (!hasInitialRoute(mob, target)) {
                 mob.discard();
@@ -466,6 +545,10 @@ public final class EncounterPopulationService {
         double x = first.x - second.x;
         double z = first.z - second.z;
         return x * x + z * z;
+    }
+
+    private static boolean deadlineReached(long deadlineNanos) {
+        return deadlineNanos != Long.MAX_VALUE && System.nanoTime() - deadlineNanos >= 0L;
     }
 
     private static void appendWarnings(

@@ -8,16 +8,28 @@ import java.util.UUID;
 /** Mutable encounter ledger. All values are integer milli-threat units. */
 public final class ThreatBudget {
     private final int total;
+    private final int baseTotal;
+    private final int reinforcementReserve;
     private final int mobCountCap;
     private final int ambientCharge;
     private final Map<UUID, Integer> mobs = new LinkedHashMap<>();
     private final Map<String, Integer> patternReservations = new LinkedHashMap<>();
+    private int retiredMobThreat;
+    private boolean reinforcementReserveUnlocked;
 
     public ThreatBudget(int total, int mobCountCap, int ambientCharge) {
-        if (total < 0 || mobCountCap < 0 || ambientCharge < 0) {
+        this(total, mobCountCap, ambientCharge, 0);
+    }
+
+    private ThreatBudget(
+            int baseTotal, int mobCountCap, int ambientCharge, int reinforcementReserve) {
+        if (baseTotal < 0 || mobCountCap < 0 || ambientCharge < 0
+                || reinforcementReserve < 0) {
             throw new IllegalArgumentException("Threat budget values must be non-negative");
         }
-        this.total = total;
+        this.baseTotal = baseTotal;
+        this.reinforcementReserve = reinforcementReserve;
+        this.total = saturatedSum(baseTotal, reinforcementReserve);
         this.mobCountCap = mobCountCap;
         this.ambientCharge = ambientCharge;
     }
@@ -40,6 +52,23 @@ public final class ThreatBudget {
             double performanceFactor,
             int ambientCharge,
             double groupMultiplier) {
+        return forIntensity(
+                intensity,
+                configuredMobCap,
+                performanceFactor,
+                ambientCharge,
+                groupMultiplier,
+                0.0);
+    }
+
+    /** Creates a lifetime budget with a bounded reserve that only later waves can consume. */
+    public static ThreatBudget forIntensity(
+            double intensity,
+            int configuredMobCap,
+            double performanceFactor,
+            int ambientCharge,
+            double groupMultiplier,
+            double reinforcementReserveFactor) {
         double bounded = clamp(intensity, 0.0, 100.0);
         int base;
         int intensityCap;
@@ -48,23 +77,26 @@ public final class ThreatBudget {
             intensityCap = 0;
         } else if (bounded < 60.0) {
             base = 3_500 + (int) Math.round((bounded - 35.0) / 25.0 * 2_000.0);
-            intensityCap = 5;
+            intensityCap = 6;
         } else if (bounded < 85.0) {
             base = 5_500 + (int) Math.round((bounded - 60.0) / 25.0 * 3_500.0);
-            intensityCap = 8;
+            intensityCap = 9;
         } else {
             base = 9_000 + (int) Math.round((bounded - 85.0) / 15.0 * 3_000.0);
-            intensityCap = 10;
+            intensityCap = 12;
         }
         double boundedGroupMultiplier = Math.max(1.0, finiteOr(groupMultiplier, 1.0));
-        int total = roundedProduct(
+        int baseTotal = roundedProduct(
                 base,
                 clamp(performanceFactor, 0.0, 1.0) * boundedGroupMultiplier);
+        int reserve = roundedProduct(
+                baseTotal, clamp(finiteOr(reinforcementReserveFactor, 0.0), 0.0, 1.0));
         int scaledIntensityCap = roundedUpProduct(intensityCap, boundedGroupMultiplier);
         return new ThreatBudget(
-                total,
+                baseTotal,
                 Math.min(Math.max(0, configuredMobCap), scaledIntensityCap),
-                ambientCharge);
+                ambientCharge,
+                reserve);
     }
 
     /** Returns a logarithmic, capped multiplier with diminishing gains per additional player. */
@@ -102,7 +134,9 @@ public final class ThreatBudget {
 
     public boolean reservePattern(String patternId, int cost) {
         Objects.requireNonNull(patternId, "patternId");
-        if (cost < 0 || patternReservations.containsKey(patternId) || cost > remaining()) {
+        // Pattern reservations may use only the base ledger. The reinforcement reserve exists to
+        // sustain later bodies, not to let a tactical pattern starve every future wave.
+        if (cost < 0 || patternReservations.containsKey(patternId) || cost > remainingBase()) {
             return false;
         }
         patternReservations.put(patternId, cost);
@@ -113,12 +147,41 @@ public final class ThreatBudget {
         mobs.remove(mobId);
     }
 
+    /** Retires a defeated/expended mob without making its lifetime threat available again. */
+    public void retireMob(UUID mobId) {
+        Integer retired = mobs.remove(mobId);
+        if (retired != null) {
+            retiredMobThreat = saturatedSum(retiredMobThreat, retired);
+        }
+    }
+
     public void releasePattern(String patternId) {
         patternReservations.remove(patternId);
     }
 
     public int remaining() {
-        return Math.max(0, total - ambientCharge - spentOnMobs() - reservedForPatterns());
+        int availableTotal = reinforcementReserveUnlocked ? total : baseTotal;
+        return (int) Math.max(0L, (long) availableTotal - spent());
+    }
+
+    private int remainingBase() {
+        return (int) Math.max(0L, (long) baseTotal - spent());
+    }
+
+    private long spent() {
+        return (long) ambientCharge
+                + spentOnMobs()
+                + retiredMobThreat
+                + reservedForPatterns();
+    }
+
+    /** Makes the lifetime reserve available after the initial population has been committed. */
+    public void unlockReinforcementReserve() {
+        reinforcementReserveUnlocked = true;
+    }
+
+    public boolean reinforcementReserveUnlocked() {
+        return reinforcementReserveUnlocked;
     }
 
     public int spentOnMobs() {
@@ -131,6 +194,18 @@ public final class ThreatBudget {
 
     public int total() {
         return total;
+    }
+
+    public int baseTotal() {
+        return baseTotal;
+    }
+
+    public int reinforcementReserve() {
+        return reinforcementReserve;
+    }
+
+    public int retiredMobThreat() {
+        return retiredMobThreat;
     }
 
     public int ambientCharge() {
@@ -166,5 +241,10 @@ public final class ThreatBudget {
     private static int roundedUpProduct(int value, double multiplier) {
         double product = value * multiplier;
         return product >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) Math.ceil(product);
+    }
+
+    private static int saturatedSum(int first, int second) {
+        long sum = (long) first + second;
+        return sum >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) sum;
     }
 }

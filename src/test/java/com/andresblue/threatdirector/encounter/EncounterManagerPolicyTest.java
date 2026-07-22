@@ -29,6 +29,12 @@ class EncounterManagerPolicyTest {
         assertTrue(ownership.ownerOf(releasedMob).isEmpty());
         assertEquals(firstEncounter, ownership.ownerOf(retainedMob).orElseThrow());
 
+        ownership.releaseMob(secondEncounter, retainedMob);
+        assertEquals(firstEncounter, ownership.ownerOf(retainedMob).orElseThrow(),
+                "a different encounter must not release the owner");
+        ownership.releaseMob(firstEncounter, retainedMob);
+        assertTrue(ownership.ownerOf(retainedMob).isEmpty());
+
         assertTrue(ownership.claimAll(secondEncounter, List.of(releasedMob, unclaimedMob)));
         ownership.releaseEncounter(firstEncounter);
         assertEquals(2, ownership.size());
@@ -61,5 +67,18 @@ class EncounterManagerPolicyTest {
         assertEquals(20.0, EncounterManager.forcedStartIntensity(state, 45.0));
         state.setIntensityOverride(90.0);
         assertEquals(90.0, EncounterManager.forcedStartIntensity(state, 45.0));
+    }
+
+    @Test
+    void integratedHostOutranksStrongerGuestWithinTheSameGroup() {
+        UUID host = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        UUID guest = UUID.fromString("00000000-0000-0000-0000-000000000001");
+
+        assertTrue(EncounterManager.preferredGroupCandidate(
+                true, 10.0, host, false, 99.0, guest));
+        assertFalse(EncounterManager.preferredGroupCandidate(
+                false, 99.0, guest, true, 10.0, host));
+        assertTrue(EncounterManager.preferredGroupCandidate(
+                false, 50.0, guest, false, 10.0, host));
     }
 }

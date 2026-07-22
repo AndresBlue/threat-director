@@ -8,6 +8,7 @@ import com.andresblue.threatdirector.config.ThreatDirectorConfig;
 import com.andresblue.threatdirector.director.EncounterState;
 import com.andresblue.threatdirector.encounter.EncounterController;
 import com.andresblue.threatdirector.encounter.EncounterManager;
+import com.andresblue.threatdirector.encounter.EncounterPressure;
 import com.andresblue.threatdirector.performance.GovernorLimits;
 import com.andresblue.threatdirector.role.TacticalRole;
 import com.andresblue.threatdirector.server.MinecraftBreachWorldView;
@@ -149,7 +150,12 @@ public final class ThreatDirectorCommands {
                 .then(CommandManager.literal("performance")
                         .executes(context -> performance(
                                 runtime(context.getSource(), runtimeSupplier),
-                                context.getSource())))
+                                context.getSource()))
+                        .then(CommandManager.literal("reset")
+                                .requires(source -> source.hasPermissionLevel(2))
+                                .executes(context -> resetPerformance(
+                                        runtime(context.getSource(), runtimeSupplier),
+                                        context.getSource()))))
                 .then(CommandManager.literal("preset")
                         .executes(context -> feedback(
                                 context.getSource(),
@@ -278,6 +284,15 @@ public final class ThreatDirectorCommands {
         PlayerDirectorState state = runtime.observations().state(player.getUuid());
         ThreatContext threat = threatContext(runtime, player);
         Optional<EncounterController> encounter = runtime.encounters().forPlayer(player.getUuid());
+        ServerPlayerEntity pressureTarget = encounter
+                .map(value -> runtime.server().getPlayerManager().getPlayer(value.targetPlayerId()))
+                .orElse(player);
+        if (pressureTarget == null) {
+            pressureTarget = player;
+        }
+        PlayerDirectorState pressureState = runtime.observations().state(pressureTarget.getUuid());
+        EncounterPressure pressure = EncounterPressure.calculate(
+                runtime.config(), pressureState, pressureTarget);
         long cooldown = Math.max(0L, state.cooldownUntilTick() - runtime.server().getTicks());
         String active = encounter.map(value -> value.state() + " / " + value.livingCount() + " mobs")
                 .orElse("ninguno");
@@ -289,11 +304,14 @@ public final class ThreatDirectorCommands {
             mode += "; grupo";
         }
         return feedback(source, String.format(Locale.ROOT,
-                "%s: threat %.1f (%s, %s), poder %.1f, encuentro %s, cooldown %d ticks",
+                "%s: threat %.1f (%s, %s), presión de encuentro %.1f (%s), "
+                        + "poder %.1f, encuentro %s, cooldown %d ticks",
                 player.getGameProfile().getName(),
                 threat.state().intensity(),
                 threat.state().band(),
                 mode,
+                pressure.effectiveIntensity(),
+                pressure.zoneLabel(),
                 state.powerReport() == null ? 0.0 : state.powerReport().score(),
                 active,
                 cooldown));
@@ -580,7 +598,10 @@ public final class ThreatDirectorCommands {
             return error(source, "No hay encuentro activo.");
         }
         return feedback(source, "Threat Budget: total=" + controller.budget().total()
-                + ", mobs=" + controller.budget().spentOnMobs()
+                + " (base=" + controller.budget().baseTotal()
+                + ", reserva=" + controller.budget().reinforcementReserve() + ")"
+                + ", mobs activos=" + controller.budget().spentOnMobs()
+                + ", mobs retirados=" + controller.budget().retiredMobThreat()
                 + ", patrones=" + controller.budget().reservedForPatterns()
                 + ", restante=" + controller.budget().remaining());
     }
@@ -656,12 +677,25 @@ public final class ThreatDirectorCommands {
     private static int performance(ThreatDirectorRuntime runtime, ServerCommandSource source) {
         GovernorLimits limits = runtime.governor().limits();
         return feedback(source, String.format(Locale.ROOT,
-                "PerformanceGovernor nivel %d, MSPT %.2f, intervalo %d, candidatos %d, encuentros activos %d",
+                "PerformanceGovernor nivel %d, MSPT %.2f, intervalo %d, candidatos %d, "
+                        + "encuentros activos %d, nuevos=%s, planner=%d ops/%d us",
                 limits.level(),
                 runtime.server().getTickTime(),
                 limits.decisionIntervalTicks(),
                 limits.candidateLimit(),
-                runtime.encounters().active().size()));
+                runtime.encounters().active().size(),
+                limits.allowNewEncounters() ? "sí" : "no",
+                runtime.config().performance().maxPlannerOperationsPerTick(),
+                runtime.config().performance().workBudgetMicrosPerTick()));
+    }
+
+    private static int resetPerformance(
+            ThreatDirectorRuntime runtime, ServerCommandSource source) {
+        int previous = runtime.governor().level();
+        runtime.governor().reset(runtime.server().getTicks());
+        return feedback(source, "PerformanceGovernor reiniciado de nivel " + previous
+                + " a 0. La degradación ordinaria se observará de nuevo durante 100 ticks; "
+                + "dos muestras de carga crítica aún activarán el nivel 6 de seguridad.");
     }
 
     private static BlockPoint point(net.minecraft.util.math.BlockPos position) {

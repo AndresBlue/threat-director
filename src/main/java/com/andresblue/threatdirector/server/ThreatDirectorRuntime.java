@@ -142,6 +142,9 @@ public final class ThreatDirectorRuntime implements AutoCloseable {
 
     public void afterDeath(net.minecraft.entity.LivingEntity entity, DamageSource source) {
         long tick = server.getTicks();
+        if (entity instanceof net.minecraft.entity.mob.MobEntity mob) {
+            encounters.confirmMobDeath(mob.getUuid());
+        }
         if (entity instanceof ServerPlayerEntity player) {
             observations.recordDeath(player, tick);
             encounters.cancel(player.getUuid(), tick);

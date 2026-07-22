@@ -33,6 +33,8 @@ import java.util.Set;
 import java.util.UUID;
 
 public final class EncounterManager {
+    private static final long ADMINISTRATIVE_MIN_WORK_BUDGET_MICROS = 25_000L;
+
     private final MinecraftServer server;
     private final PlayerObservationService observations;
     private final MobOrderStore orderStore;
@@ -81,15 +83,25 @@ public final class EncounterManager {
             if (!isPreferredGroupTarget(player, config)) {
                 continue;
             }
-            if (player.getRandom().nextDouble() > config.director().encounterChancePerScan()) {
+            EncounterPressure pressure = EncounterPressure.calculate(config, state, player);
+            if (player.getRandom().nextDouble() > pressure.encounterChance()) {
                 continue;
             }
-            int populationBudget = reserveRemainingPlanningBudget(config);
+            int populationBudget = availablePlanningBudget(config);
             if (populationBudget <= 0) {
                 break;
             }
-            start(player, state, config, limits, false, populationBudget);
-            break;
+            StartResult result = start(
+                    player,
+                    state,
+                    config,
+                    limits,
+                    false,
+                    populationBudget,
+                    planningDeadlineNanos);
+            if (result.started()) {
+                break;
+            }
         }
     }
 
@@ -98,14 +110,16 @@ public final class EncounterManager {
             ThreatDirectorConfig config,
             GovernorLimits limits) {
         if (!limits.allowNewEncounters() || limits.vanillaOnly()) {
-            return StartResult.rejected("performance governor is not accepting new encounters");
+            return StartResult.rejected("performance governor level " + limits.level()
+                    + " is not accepting new encounters; use /threatdirector performance reset "
+                    + "only after checking server load");
         }
         int controllerCap = Math.max(1, (int) Math.floor(
                 config.encounter().maxActiveEncounters() * limits.activeControllerFactor()));
         if (encounters.size() >= controllerCap) {
             return StartResult.rejected("active encounter safety cap has been reached");
         }
-        int populationBudget = reserveRemainingPlanningBudget(config);
+        int populationBudget = administrativePlanningBudget(config);
         if (populationBudget <= 0) {
             return StartResult.rejected("planner work budget is exhausted for this tick");
         }
@@ -115,7 +129,8 @@ public final class EncounterManager {
                 config,
                 limits,
                 true,
-                populationBudget);
+                populationBudget,
+                administrativePlanningDeadline(config));
     }
 
     private StartResult start(
@@ -124,36 +139,63 @@ public final class EncounterManager {
             ThreatDirectorConfig config,
             GovernorLimits limits,
             boolean forced,
-            int populationPlannerBudget) {
+            int populationPlannerBudget,
+            long populationDeadlineNanos) {
         Optional<String> rejection = eligibilityRejection(player, state, config, forced);
         if (rejection.isPresent()) {
             return StartResult.rejected(rejection.get());
         }
 
-        double intensity = forced
+        double requestedIntensity = forced
                 ? forcedStartIntensity(state, config.director().minimumIntensity())
                 : state.intensity();
+        EncounterPressure pressure = EncounterPressure.calculate(
+                config,
+                requestedIntensity,
+                state.hasIntensityOverride(),
+                EncounterPressure.Context.from(player));
+        double intensity = pressure.effectiveIntensity();
         int nearbySurvivalPlayers = nearbySurvivalPlayerCount(player, config);
         double groupMultiplier = ThreatBudget.diminishingGroupMultiplier(
                 nearbySurvivalPlayers,
                 config.multiplayer().additionalPlayerScale(),
                 config.multiplayer().maxGroupMultiplier());
         int groupMobCap = ThreatBudget.scaledMobCap(
-                config.encounter().maxMobs(),
+                pressure.mobCap(),
                 config.encounter().hardMaxMobs(),
                 groupMultiplier);
+        double reinforcementReserveFactor = pressure.reinforcementSize() <= 0
+                ? 0.0
+                : Math.min(1.0,
+                        pressure.reinforcementSize() * 4.0 / Math.max(1, pressure.mobCap()));
         ThreatBudget budget = ThreatBudget.forIntensity(
                 intensity,
                 groupMobCap,
                 limits.threatBudgetFactor(),
                 0,
-                groupMultiplier);
-        if (budget.mobCountCap() < config.encounter().minMobs()) {
-            return StartResult.rejected("threat budget is below the minimum encounter size");
+                groupMultiplier,
+                reinforcementReserveFactor);
+        int effectiveMinimum = pressure.minimumMobs();
+        if (budget.mobCountCap() < effectiveMinimum) {
+            return StartResult.rejected("threat budget mob cap " + budget.mobCountCap()
+                    + " is below the contextual minimum " + effectiveMinimum);
         }
 
         UUID id = UUID.randomUUID();
         ThreatCostRegistry costs = costRegistry(config);
+        int cheapestMobCost = config.encounter().allowedMobIds().stream()
+                .map(config.encounter().threatCosts()::get)
+                .filter(Objects::nonNull)
+                .mapToInt(cost -> (int) Math.round(cost * 1_000.0))
+                .filter(cost -> cost > 0)
+                .min()
+                .orElse(Integer.MAX_VALUE);
+        if (cheapestMobCost == Integer.MAX_VALUE
+                || (long) cheapestMobCost * effectiveMinimum > budget.remaining()) {
+            return StartResult.rejected("contextual horde is unaffordable: minimum="
+                    + effectiveMinimum + ", available=" + budget.remaining()
+                    + " milli-threat");
+        }
         EncounterPopulationService populationService = new EncounterPopulationService(
                 config, costs, MobTraitRegistry.vanillaMvp());
         EncounterPopulation population = populationService.populate(
@@ -162,8 +204,13 @@ public final class EncounterManager {
                 budget,
                 mobOwnership.ownedMobIds(),
                 groupMobCap,
-                populationPlannerBudget);
-        if (!population.meetsMinimum(config.encounter().minMobs())) {
+                effectiveMinimum,
+                populationPlannerBudget,
+                populationDeadlineNanos);
+        if (!forced) {
+            consumePlanningOperations(population.planningOperations());
+        }
+        if (!population.meetsMinimum(effectiveMinimum)) {
             String reason = population.diagnostics().isEmpty()
                     ? "safe population could not be formed"
                     : String.join("; ", population.diagnostics());
@@ -210,8 +257,15 @@ public final class EncounterManager {
         attributes.put("recruited", population.recruitedCount());
         attributes.put("spawned", population.spawnedCount());
         attributes.put("threatBudget", budget.total());
+        attributes.put("baseThreatBudget", budget.baseTotal());
+        attributes.put("reinforcementReserve", budget.reinforcementReserve());
         attributes.put("nearbySurvivalPlayers", nearbySurvivalPlayers);
         attributes.put("groupMultiplier", groupMultiplier);
+        attributes.put("danger", pressure.hazard());
+        attributes.put("zone", pressure.zoneLabel());
+        attributes.put("minimumPopulation", effectiveMinimum);
+        attributes.put("mobCap", groupMobCap);
+        attributes.put("integratedHostAnchor", isIntegratedHost(player));
         attributes.put("forced", forced);
         if (config.telemetry().includePlayerUuid()) {
             attributes.put("player", player.getUuidAsString());
@@ -279,6 +333,19 @@ public final class EncounterManager {
                     controllerPlannerBudget);
             remainingPlannerOperations = Math.max(
                     0, remainingPlannerOperations - controller.lastPlannerOperationsUsed());
+            if (!controller.finished() && target != null && limits.allowNewEncounters()) {
+                int reinforcementOperations = reinforce(
+                        controller,
+                        target,
+                        playerState,
+                        config,
+                        limits,
+                        tick,
+                        remainingPlannerOperations,
+                        workDeadline);
+                remainingPlannerOperations = Math.max(
+                        0, remainingPlannerOperations - reinforcementOperations);
+            }
             mobOwnership.retainForEncounter(controller.encounterId(), controller.memberIds());
             if (controller.finished()) {
                 completed.add(controller);
@@ -295,19 +362,119 @@ public final class EncounterManager {
         }
     }
 
+    private int reinforce(
+            EncounterController controller,
+            ServerPlayerEntity target,
+            PlayerDirectorState state,
+            ThreatDirectorConfig config,
+            GovernorLimits limits,
+            long tick,
+            int availableOperations,
+            long workDeadline) {
+        if (availableOperations <= 0 || System.nanoTime() - workDeadline >= 0L) {
+            return 0;
+        }
+        EncounterPressure pressure = EncounterPressure.calculate(config, state, target);
+        if (pressure.reinforcementSize() <= 0
+                || !controller.canReinforce(
+                        tick, pressure.reinforcementIntervalTicks(), 4, 2)) {
+            return 0;
+        }
+
+        int currentPopulation = controller.livingCount();
+        double liveGroupMultiplier = ThreatBudget.diminishingGroupMultiplier(
+                nearbySurvivalPlayerCount(target, config),
+                config.multiplayer().additionalPlayerScale(),
+                config.multiplayer().maxGroupMultiplier());
+        int contextualMobCap = ThreatBudget.scaledMobCap(
+                pressure.mobCap(),
+                config.encounter().hardMaxMobs(),
+                liveGroupMultiplier);
+        int waveCap = Math.min(
+                Math.min(controller.budget().mobCountCap(), contextualMobCap),
+                currentPopulation + pressure.reinforcementSize());
+        if (waveCap <= currentPopulation) {
+            controller.deferReinforcement(tick);
+            return 0;
+        }
+        int operationBudget = Math.min(
+                availableOperations,
+                Math.max(
+                        pressure.reinforcementSize() * 8,
+                        Math.min(config.tactical().maxCandidatesPerSnapshot(),
+                                limits.candidateLimit())));
+        EncounterPopulationService populationService = new EncounterPopulationService(
+                config, costRegistry(config), MobTraitRegistry.vanillaMvp());
+        EncounterPopulation population = populationService.populate(
+                target.getServerWorld(),
+                target,
+                controller.budget(),
+                mobOwnership.ownedMobIds(),
+                waveCap,
+                Math.min(pressure.minimumMobs(), waveCap),
+                operationBudget,
+                workDeadline);
+        int used = population.planningOperations();
+        if (population.members().isEmpty()) {
+            controller.deferReinforcement(tick);
+            return used;
+        }
+
+        List<UUID> memberIds = population.members().stream()
+                .map(member -> member.profile().id())
+                .toList();
+        if (!mobOwnership.claimAll(controller.encounterId(), memberIds)) {
+            populationService.rollbackPopulation(target.getServerWorld(), controller.budget(), population);
+            controller.deferReinforcement(tick);
+            return used;
+        }
+        int added = controller.addPopulation(population, tick);
+        if (added <= 0) {
+            populationService.rollbackPopulation(target.getServerWorld(), controller.budget(), population);
+            mobOwnership.retainForEncounter(controller.encounterId(), controller.memberIds());
+            controller.deferReinforcement(tick);
+            return used;
+        }
+
+        telemetry.record(TelemetryEvent.now("encounter.reinforced", Map.of(
+                "encounter", controller.encounterId().toString(),
+                "wave", controller.reinforcementWaves(),
+                "membersAdded", added,
+                "livingMembers", controller.livingCount(),
+                "zone", pressure.zoneLabel(),
+                "danger", pressure.hazard())));
+        ThreatDirectorMod.LOGGER.info(
+                "Reinforced encounter {} with {} mobs (wave {}, {} living)",
+                controller.encounterId(),
+                added,
+                controller.reinforcementWaves(),
+                controller.livingCount());
+        return used;
+    }
+
     private void finish(EncounterController controller, ThreatDirectorConfig config, long tick) {
         encounters.remove(controller.encounterId());
         encounterByPlayer.remove(controller.targetPlayerId(), controller.encounterId());
         mobOwnership.releaseEncounter(controller.encounterId());
-        long minimum = config.director().cooldownMinTicks();
-        long maximum = config.director().cooldownMaxTicks();
+        ServerPlayerEntity target = server.getPlayerManager().getPlayer(controller.targetPlayerId());
+        double cooldownMultiplier = target == null
+                ? 1.0
+                : EncounterPressure.calculate(
+                        config, observations.state(controller.targetPlayerId()), target)
+                        .cooldownMultiplier();
+        long minimum = Math.max(1L, Math.round(
+                config.director().cooldownMinTicks() * cooldownMultiplier));
+        long maximum = Math.max(minimum, Math.round(
+                config.director().cooldownMaxTicks() * cooldownMultiplier));
         long cooldown = minimum + (maximum > minimum
                 ? server.getOverworld().random.nextInt((int) (maximum - minimum + 1L))
                 : 0L);
         observations.state(controller.targetPlayerId()).markEncounterEnded(tick, cooldown);
         telemetry.record(TelemetryEvent.now("encounter.finished", Map.of(
                 "encounter", controller.encounterId().toString(),
-                "cooldownTicks", cooldown)));
+                "cooldownTicks", cooldown,
+                "cooldownMultiplier", cooldownMultiplier,
+                "reinforcementWaves", controller.reinforcementWaves())));
     }
 
     private Optional<String> eligibilityRejection(
@@ -350,7 +517,9 @@ public final class EncounterManager {
         if (!forced && state.onCooldown(server.getTicks())) {
             return Optional.of("player is on encounter cooldown");
         }
-        if (!forced && state.intensity() < config.director().minimumIntensity()) {
+        if (!forced
+                && EncounterPressure.calculate(config, state, player).effectiveIntensity()
+                        < config.director().minimumIntensity()) {
             return Optional.of("Adventure Intensity is below the configured threshold");
         }
         if (!forced && config.director().requireNightOrDarkness()
@@ -378,6 +547,7 @@ public final class EncounterManager {
             ServerPlayerEntity candidate, ThreatDirectorConfig config) {
         double radiusSquared = config.multiplayer().groupRadius()
                 * config.multiplayer().groupRadius();
+        boolean candidateIsHost = isIntegratedHost(candidate);
         double candidatePower = powerScore(observations.state(candidate.getUuid()));
         for (ServerPlayerEntity other : server.getPlayerManager().getPlayerList()) {
             if (other == candidate
@@ -391,14 +561,38 @@ public final class EncounterManager {
                             .isPresent()) {
                 continue;
             }
+            boolean otherIsHost = isIntegratedHost(other);
             double otherPower = powerScore(observations.state(other.getUuid()));
-            if (otherPower > candidatePower
-                    || (Double.compare(otherPower, candidatePower) == 0
-                            && other.getUuid().compareTo(candidate.getUuid()) < 0)) {
+            if (!preferredGroupCandidate(
+                    candidateIsHost,
+                    candidatePower,
+                    candidate.getUuid(),
+                    otherIsHost,
+                    otherPower,
+                    other.getUuid())) {
                 return false;
             }
         }
         return true;
+    }
+
+    private boolean isIntegratedHost(ServerPlayerEntity player) {
+        return server.isSingleplayer() && server.isHost(player.getGameProfile());
+    }
+
+    static boolean preferredGroupCandidate(
+            boolean candidateIsHost,
+            double candidatePower,
+            UUID candidateId,
+            boolean otherIsHost,
+            double otherPower,
+            UUID otherId) {
+        if (candidateIsHost != otherIsHost) {
+            return candidateIsHost;
+        }
+        int powerComparison = Double.compare(candidatePower, otherPower);
+        return powerComparison > 0
+                || powerComparison == 0 && candidateId.compareTo(otherId) < 0;
     }
 
     private int nearbySurvivalPlayerCount(
@@ -491,14 +685,35 @@ public final class EncounterManager {
         planningDeadlineNanos = System.nanoTime() + workBudgetNanos;
     }
 
-    private int reserveRemainingPlanningBudget(ThreatDirectorConfig config) {
+    private int availablePlanningBudget(ThreatDirectorConfig config) {
         ensurePlanningBudget(config);
         if (System.nanoTime() - planningDeadlineNanos >= 0L) {
             return 0;
         }
-        int reserved = remainingPlanningOperations;
-        remainingPlanningOperations = 0;
-        return reserved;
+        return remainingPlanningOperations;
+    }
+
+    private int administrativePlanningBudget(ThreatDirectorConfig config) {
+        // Commands run between server ticks, frequently after the ordinary deadline has elapsed.
+        // Give an OP-triggered population one bounded standalone slice so scene testing is
+        // deterministic without removing entity, health, chunk or hard-cap safeguards.
+        return Math.max(
+                config.performance().maxPlannerOperationsPerTick(),
+                config.tactical().maxCandidatesPerSnapshot());
+    }
+
+    private long administrativePlanningDeadline(ThreatDirectorConfig config) {
+        // Manual scene setup gets its own bounded window. This avoids inheriting an expired tick
+        // deadline while still preventing an OP command from launching an unbounded path batch.
+        long workBudgetMicros = Math.max(
+                ADMINISTRATIVE_MIN_WORK_BUDGET_MICROS,
+                Math.max(0L, config.performance().workBudgetMicrosPerTick()));
+        return System.nanoTime() + workBudgetMicros * 1_000L;
+    }
+
+    private void consumePlanningOperations(int operations) {
+        remainingPlanningOperations = Math.max(
+                0, remainingPlanningOperations - Math.max(0, operations));
     }
 
     private void recordTransition(EncounterTransition transition, ThreatDirectorConfig config) {
@@ -544,6 +759,20 @@ public final class EncounterManager {
 
     public Collection<EncounterController> active() {
         return List.copyOf(encounters.values());
+    }
+
+    /** Routes the authoritative server death event to the owning encounter immediately. */
+    public boolean confirmMobDeath(UUID mobId) {
+        if (mobId == null) {
+            return false;
+        }
+        UUID encounterId = mobOwnership.ownerOf(mobId).orElse(null);
+        EncounterController controller = encounterId == null ? null : encounters.get(encounterId);
+        if (controller == null || !controller.confirmMobDeath(mobId)) {
+            return false;
+        }
+        mobOwnership.releaseMob(encounterId, mobId);
+        return true;
     }
 
     public boolean cancel(UUID playerId, long tick) {
@@ -613,6 +842,10 @@ public final class EncounterManager {
             Set<UUID> retained = Set.copyOf(retainedMobIds);
             ownerByMob.entrySet().removeIf(entry -> entry.getValue().equals(encounterId)
                     && !retained.contains(entry.getKey()));
+        }
+
+        void releaseMob(UUID encounterId, UUID mobId) {
+            ownerByMob.remove(mobId, encounterId);
         }
 
         void releaseEncounter(UUID encounterId) {

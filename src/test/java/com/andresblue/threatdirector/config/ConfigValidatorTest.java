@@ -17,12 +17,26 @@ class ConfigValidatorTest {
         ThreatDirectorConfig config = ThreatDirectorConfig.vanillaPlus();
 
         assertEquals(config, ConfigValidator.requireValid(config));
+        assertEquals(2, config.schemaVersion());
         assertEquals(Preset.VANILLA_PLUS, config.preset());
         assertTrue(config.enabled());
         assertTrue(config.breachSimulation().simulationOnly());
         assertTrue(config.integrations().forceVanillaMobs());
-        assertEquals(6, config.encounter().maxMobs());
-        assertEquals(8, config.encounter().hardMaxMobs());
+        assertEquals(60, config.director().scanIntervalTicks());
+        assertEquals(0.04, config.director().encounterChancePerScan());
+        assertEquals(3_600, config.director().cooldownMinTicks());
+        assertEquals(7_200, config.director().cooldownMaxTicks());
+        assertEquals(8, config.encounter().maxMobs());
+        assertEquals(12, config.encounter().hardMaxMobs());
+        assertEquals(24, config.encounter().maxNearbyHostiles());
+        assertEquals(32, config.tactical().maxCandidatesPerSnapshot());
+        assertEquals(4, config.tactical().maxPathAttemptsPerMob());
+        assertEquals(30, config.tactical().replanIntervalTicks());
+        assertEquals(3, config.tactical().maxSimultaneousMeleeAttackers());
+        assertEquals(3_500, config.performance().workBudgetMicrosPerTick());
+        assertEquals(48, config.performance().maxPlannerOperationsPerTick());
+        assertEquals(40.0, config.performance().level1TickTimeMs());
+        assertEquals(100.0, config.performance().level6TickTimeMs());
         assertThrows(
                 UnsupportedOperationException.class,
                 () -> config.encounter().allowedMobIds().add("minecraft:witch"));
@@ -37,7 +51,7 @@ class ConfigValidatorTest {
         JsonObject encounter = json.getAsJsonObject("encounter");
         encounter.addProperty("minMobs", 9);
         encounter.addProperty("maxMobs", 7);
-        encounter.addProperty("hardMaxMobs", 11);
+        encounter.addProperty("hardMaxMobs", 17);
         encounter.addProperty("spawnMinDistance", 50);
         encounter.addProperty("spawnMaxDistance", 48);
         json.getAsJsonObject("intensity").addProperty("smoothingAlpha", 2.0);
@@ -72,6 +86,16 @@ class ConfigValidatorTest {
                 .anyMatch(value -> value.contains("enableExternalAdapters")));
         assertTrue(exception.violations().stream()
                 .anyMatch(value -> value.contains("forceVanillaMobs")));
+    }
+
+    @Test
+    void acceptsSixteenAsTheAbsoluteMobSafetyCap() {
+        JsonObject json = defaultJson();
+        json.getAsJsonObject("encounter").addProperty("hardMaxMobs", 16);
+
+        ThreatDirectorConfig config = fromJson(json);
+
+        assertEquals(config, ConfigValidator.requireValid(config));
     }
 
     @Test

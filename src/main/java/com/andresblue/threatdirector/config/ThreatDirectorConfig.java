@@ -26,10 +26,19 @@ public record ThreatDirectorConfig(
         IntegrationsSection integrations,
         DebugSection debug) {
 
-    public static final int CURRENT_SCHEMA_VERSION = 1;
+    public static final int CURRENT_SCHEMA_VERSION = 2;
 
     /** Returns the safe, standalone MVP preset. */
     public static ThreatDirectorConfig vanillaPlus() {
+        return vanillaPlusDefaults(CURRENT_SCHEMA_VERSION, false);
+    }
+
+    /** Exact schema-v1 preset used only to distinguish untouched legacy files during migration. */
+    static ThreatDirectorConfig legacyVanillaPlusV1() {
+        return vanillaPlusDefaults(1, true);
+    }
+
+    private static ThreatDirectorConfig vanillaPlusDefaults(int schemaVersion, boolean legacy) {
         Map<String, Double> threatCosts = new LinkedHashMap<>();
         threatCosts.put("minecraft:zombie", 1.0);
         threatCosts.put("minecraft:skeleton", 1.3);
@@ -37,15 +46,15 @@ public record ThreatDirectorConfig(
         threatCosts.put("minecraft:creeper", 1.8);
 
         return new ThreatDirectorConfig(
-                CURRENT_SCHEMA_VERSION,
+                schemaVersion,
                 Preset.VANILLA_PLUS,
                 true,
                 new DirectorSection(
-                        100,
+                        legacy ? 100 : 60,
                         45.0,
-                        0.015,
-                        9_600,
-                        14_400,
+                        legacy ? 0.015 : 0.04,
+                        legacy ? 9_600 : 3_600,
+                        legacy ? 14_400 : 7_200,
                         true,
                         List.of("minecraft:overworld")),
                 new IntensitySection(
@@ -64,13 +73,13 @@ public record ThreatDirectorConfig(
                         30.0),
                 new EncounterSection(
                         3,
-                        6,
-                        8,
+                        legacy ? 6 : 8,
+                        legacy ? 8 : 12,
                         2,
                         48,
                         28,
                         48,
-                        16,
+                        legacy ? 16 : 24,
                         false,
                         160,
                         300,
@@ -85,19 +94,26 @@ public record ThreatDirectorConfig(
                                 "minecraft:spider",
                                 "minecraft:creeper"),
                         threatCosts),
-                new TacticalSection(10.0, 18.0, 16, 2, 40, 5.0, 2),
+                new TacticalSection(
+                        10.0,
+                        18.0,
+                        legacy ? 16 : 32,
+                        legacy ? 2 : 4,
+                        legacy ? 40 : 30,
+                        5.0,
+                        legacy ? 2 : 3),
                 new MultiplayerSection(24.0, 0.35, 1.75),
                 new PerformanceSection(
-                        2_000,
-                        4,
+                        legacy ? 2_000 : 3_500,
+                        legacy ? 4 : 48,
                         100,
                         600,
-                        35.0,
-                        42.0,
-                        48.0,
-                        55.0,
-                        65.0,
-                        80.0),
+                        legacy ? 35.0 : 40.0,
+                        legacy ? 42.0 : 48.0,
+                        legacy ? 48.0 : 56.0,
+                        legacy ? 55.0 : 65.0,
+                        legacy ? 65.0 : 80.0,
+                        legacy ? 80.0 : 100.0),
                 new BreachSimulationSection(true, true, 6, 2, 1.5, 128),
                 new TelemetrySection(false, 256, 32, false),
                 new IntegrationsSection(false, true),

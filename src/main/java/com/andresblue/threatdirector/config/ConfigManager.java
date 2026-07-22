@@ -58,11 +58,16 @@ public final class ConfigManager {
             return defaults;
         }
 
-        ThreatDirectorConfig candidate;
+        ThreatDirectorConfig parsed;
         try (Reader reader = Files.newBufferedReader(configFile, StandardCharsets.UTF_8)) {
-            candidate = GSON.fromJson(reader, ThreatDirectorConfig.class);
+            parsed = GSON.fromJson(reader, ThreatDirectorConfig.class);
         }
+        Migration migration = migrate(parsed);
+        ThreatDirectorConfig candidate = migration.config();
         ConfigValidator.requireValid(candidate);
+        if (migration.rewrite()) {
+            writeAtomically(candidate);
+        }
         current = candidate;
         return candidate;
     }
@@ -79,6 +84,30 @@ public final class ConfigManager {
 
     public Path configFile() {
         return configFile;
+    }
+
+    private static Migration migrate(ThreatDirectorConfig candidate) {
+        if (candidate == null || candidate.schemaVersion() != 1) {
+            return new Migration(candidate, false);
+        }
+        if (candidate.equals(ThreatDirectorConfig.legacyVanillaPlusV1())) {
+            return new Migration(ThreatDirectorConfig.vanillaPlus(), true);
+        }
+        ThreatDirectorConfig migrated = new ThreatDirectorConfig(
+                ThreatDirectorConfig.CURRENT_SCHEMA_VERSION,
+                candidate.preset(),
+                candidate.enabled(),
+                candidate.director(),
+                candidate.intensity(),
+                candidate.encounter(),
+                candidate.tactical(),
+                candidate.multiplayer(),
+                candidate.performance(),
+                candidate.breachSimulation(),
+                candidate.telemetry(),
+                candidate.integrations(),
+                candidate.debug());
+        return new Migration(migrated, true);
     }
 
     private void writeAtomically(ThreatDirectorConfig config) throws IOException {
@@ -101,4 +130,6 @@ public final class ConfigManager {
             Files.deleteIfExists(temporary);
         }
     }
+
+    private record Migration(ThreatDirectorConfig config, boolean rewrite) {}
 }

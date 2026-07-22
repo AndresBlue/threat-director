@@ -9,13 +9,25 @@ import java.util.UUID;
 
 /** Immutable result of recruiting and, when necessary, safely spawning an encounter group. */
 public record EncounterPopulation(
-        List<Member> members, int spawnAttempts, List<String> diagnostics) {
+        List<Member> members,
+        int spawnAttempts,
+        List<String> diagnostics,
+        int planningOperations) {
+
+    /** Backwards-compatible constructor for immutable snapshots created outside the world service. */
+    public EncounterPopulation(List<Member> members, int spawnAttempts, List<String> diagnostics) {
+        this(members, spawnAttempts, diagnostics, spawnAttempts);
+    }
 
     public EncounterPopulation {
         members = List.copyOf(Objects.requireNonNull(members, "members"));
         diagnostics = List.copyOf(Objects.requireNonNull(diagnostics, "diagnostics"));
         if (spawnAttempts < 0) {
             throw new IllegalArgumentException("spawnAttempts must be non-negative");
+        }
+        if (planningOperations < spawnAttempts) {
+            throw new IllegalArgumentException(
+                    "planningOperations must include every spawn attempt");
         }
 
         Set<UUID> uniqueMembers = new HashSet<>();

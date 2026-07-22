@@ -27,6 +27,7 @@ class EncounterPopulationTest {
 
         assertEquals(2, population.recruitedCount());
         assertEquals(1, population.spawnedCount());
+        assertEquals(7, population.planningOperations());
         assertTrue(population.meetsMinimum(3));
         assertFalse(population.meetsMinimum(4));
         assertThrows(UnsupportedOperationException.class, () -> population.members().clear());
@@ -45,6 +46,13 @@ class EncounterPopulationTest {
                                 member(duplicate, Origin.DIRECTOR_SPAWNED)),
                         0,
                         List.of()));
+    }
+
+    @Test
+    void planningAccountingIncludesAllSpawnAttempts() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new EncounterPopulation(List.of(), 3, List.of(), 2));
     }
 
     @Test

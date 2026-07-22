@@ -5,8 +5,11 @@
 El repositorio apunta a Minecraft 1.20.1 con Fabric Loader 0.18.4, Yarn
 1.20.1+build.10, Fabric API 0.92.11+1.20.1 y bytecode Java 17. La máquina de
 desarrollo inspeccionada dispone de Temurin 21, que compila con `--release 17`.
-El MVP es autoritativo del
-servidor: no necesita entrypoint cliente, paquetes personalizados ni una interfaz gráfica.
+El MVP es autoritativo del servidor: no necesita entrypoint cliente, paquetes personalizados ni
+una interfaz gráfica. En dedicado y en LAN basta con instalarlo en el lado que aloja el servidor;
+los clientes remotos de Minecraft 1.20.1 pueden conectarse sin Threat Director y reciben el HUD
+mediante la bossbar vanilla. En una partida integrada, el host sí necesita el mod porque también
+ejecuta el servidor.
 
 La configuración descrita aquí ya tiene modelo, validación y carga en
 `com.andresblue.threatdirector.config`. El enlace de `ConfigManager` con
@@ -19,10 +22,10 @@ El primer hito jugable coordina grupos pequeños de zombies, esqueletos, arañas
 modificar sus estadísticas. Incluye:
 
 - Adventure Intensity básica y suavizada.
-- Threat Budget y composiciones de 3 a 6 mobs.
+- Threat Budget y poblaciones contextuales: máximo normal 8 y máximo difícil 12 por defecto.
 - Roles Vanguard, Flanker, Harasser e Interceptor.
 - Sectores terrestres, Pinza y Cierre de salida.
-- Fases Stalking, Positioning, Engaging y Relief.
+- Fases Stalking, Positioning, Engaging, Searching, Climax, Retreating y Relief.
 - Límites estrictos de tiempo, entidades y pathfinding.
 - BreachPlanner estrictamente simulado.
 - Comandos administrativos y telemetría local opcional.
@@ -88,6 +91,12 @@ encuentros activos vive en `EncounterManager`. Los cooldowns usan ticks del serv
 sistema ni hora del día. El estado desconectado se conserva durante una ventana acotada para evitar
 que una reconexión elimine inmediatamente sus salvaguardas.
 
+`EncounterPressure` combina dificultad y zona en un peligro normalizado. Easy, Normal y Hard parten
+de 0.25, 0.50 y 0.75; noche, oscuridad y cueva aportan 0.08, 0.10 y 0.12, con límite 1.0. Esa señal
+ajusta de forma coherente intensidad adaptativa, probabilidad de encuentro, mínimo y cap de mobs,
+atacantes cuerpo a cuerpo, cadencia táctica, refuerzos y cooldown. Un override explícito conserva
+su intensidad solicitada, pero no desactiva las demás salvaguardas contextuales.
+
 Un override administrativo vive separado de la intensidad adaptativa. `intensity()` expone el valor
 efectivo al director y al HUD, mientras el muestreo continúa actualizando `adaptiveIntensity()`; al
 limpiar el override no hay que reconstruir ni falsear el historial observado.
@@ -104,16 +113,28 @@ recibe paquetes bossbar vanilla: no existe entrypoint gráfico ni protocolo pers
 pertenezca a dos controladores. Los controladores almacenan UUID y resuelven entidades en el mundo;
 no conservan referencias después de unload.
 
-La máquina inicial es:
+En un servidor integrado abierto a LAN, el host es el objetivo primario preferido durante el scan
+automático cuando comparte grupo con otros jugadores elegibles. Fuera de ese caso se prefiere el
+jugador con mayor potencia observada y se usa el UUID como desempate determinista.
+
+La máquina de estados principal es:
 
 ```text
-DORMANT → STALKING → POSITIONING → ENGAGING → RELIEF → COOLDOWN
-                     ↘ ABORTED ←───────────────↗
+DORMANT → STALKING → POSITIONING → ENGAGING → CLIMAX → RETREATING → COOLDOWN
+                         │            │  ↑                         ↑
+                         └→ SEARCHING ┘  └→ RELIEF ───────────────┘
+                         └──────────────→ ABORTED ────────────────┘
 ```
 
 Cada transición registra estado anterior, nuevo, causa, target, encuentro, tick, intensidad y
 presupuesto restante. Cambio de dimensión, logout, grupo inviable, distancia excesiva, pérdida de
 contacto y nivel de rendimiento 6 terminan el encuentro de forma segura.
+
+Durante `ENGAGING`, `SEARCHING` o `CLIMAX`, la presión puede solicitar hasta cuatro oleadas de
+refuerzo. Cada oleada vuelve a pasar por Threat Budget, ownership global, población segura, cap
+contextual, límite difícil, presupuesto de planner y gobernador; necesita al menos dos miembros
+vivos y nunca garantiza que aparecerá si no existe una población válida. Telemetría y logs incluyen
+número de oleada, zona y peligro.
 
 `GroupBlackboard` contiene solamente información parcial: última posición vista, confianza,
 velocidad reciente, sectores reservados, slots cuerpo a cuerpo y fallos de ruta. La confianza
@@ -134,13 +155,20 @@ consumen el mismo presupuesto. La generación de creepers por el director está 
 predeterminada. Cuando `mobGriefing=true`, tampoco se reclutan creepers naturales salvo opt-in
 explícito; con `mobGriefing=false` sí son elegibles porque su explosión vanilla no rompe terreno.
 
+El schema 2 configura `minMobs=3`, `maxMobs=8`, `hardMaxMobs=12` y
+`maxNearbyHostiles=24`. La presión interpola el cap entre esos límites; el escalado multijugador y
+las oleadas siguen sujetos al Threat Budget y al máximo difícil. La validación permite personalizar
+`hardMaxMobs` hasta un máximo absoluto de 16.
+
 ### Táctica e IA vanilla
 
 El entorno inmediato se representa mediante diez sectores relativos a la mirada, la altura, la
-ruta de escape, la cobertura y la reserva. Una snapshot produce como máximo 16 candidatos en un
-anillo configurable de 10 a 18 bloques por defecto. Primero se
-hacen comprobaciones baratas y luego, como máximo, dos intentos de path por mob. Se recalcula cada
-40 ticks, tras desplazamiento significativo o fallo de ruta.
+ruta de escape, la cobertura y la reserva. Una snapshot produce como máximo 32 candidatos en un
+anillo configurable de 10 a 18 bloques por defecto. Primero se hacen comprobaciones baratas y
+luego se permiten cuatro intentos base de path por mob; con peligro de 0.70 o más puede autorizarse
+un quinto intento contextual, siempre dentro del presupuesto global. La cadencia base de replan es
+30 ticks y la presión la acelera o ralentiza; también se recalcula tras desplazamiento significativo
+o fallo de ruta.
 
 La predicción de escape combina velocidad reciente y mirada. Pinza requiere sectores opuestos;
 Cierre de salida requiere un Interceptor y un punto adelantado viable. Si el plan falla, el grupo
@@ -177,11 +205,14 @@ El archivo ausente se crea con JSON UTF-8 formateado mediante escritura temporal
 atómico cuando el sistema de archivos lo soporta. La carga sigue este orden:
 
 1. Parsear a una nueva snapshot.
-2. Validar todas las secciones y relaciones.
-3. Publicar la snapshot completa en una asignación `volatile`.
-4. Mantener la última snapshot válida si parseo o validación fallan.
+2. Si es schema 1, migrar: el preset legado exacto recibe todos los defaults v2; un archivo v1
+   personalizado conserva sus secciones y valores y solo cambia `schemaVersion`.
+3. Validar todas las secciones y relaciones como schema 2.
+4. Reescribir atómicamente el archivo cuando hubo migración.
+5. Publicar la snapshot completa en una asignación `volatile`.
+6. Mantener la última snapshot válida si parseo, migración, validación o escritura fallan.
 
-Las secciones del schema 1 son:
+Las secciones del schema 2 son:
 
 | Sección | Responsabilidad |
 | --- | --- |
@@ -201,12 +232,15 @@ Invariantes de `VANILLA_PLUS`:
 - `simulationOnly` siempre es `true`;
 - adapters externos están desactivados;
 - solo se seleccionan mobs vanilla;
-- el límite absoluto no supera 10 mobs;
+- el default difícil es 12 mobs y el límite configurable absoluto es 16;
 - cada mob permitido posee un threat cost positivo;
 - distancias, fases y umbrales de rendimiento mantienen orden coherente.
 
-Los encuentros activos deben conservar la snapshot con la que nacieron. Una recarga solo afecta
-nuevos encuentros.
+La publicación de una recarga es atómica, pero un encuentro activo no representa una snapshot
+íntegra y aislada del runtime. Su controlador conserva la configuración de construcción para FSM,
+táctica y órdenes; el manager aplica la configuración vigente a seguridad, presupuesto global,
+refuerzos, finalización/cooldown, observación, HUD y gobernador. Los encuentros nuevos sí nacen por
+completo con la configuración recargada.
 
 ## Persistencia y telemetría
 
@@ -234,9 +268,15 @@ se recupera más lentamente:
 ```
 
 Además de los umbrales de tick, la configuración reserva un presupuesto global de microsegundos. El
-MVP combina una deadline best-effort con límites deterministas globales de operaciones, candidatos y
-frecuencia. Una consulta de pathfinding ya iniciada no puede interrumpirse a mitad de llamada. Nunca
-se carga un chunk para completar una táctica.
+default v2 comparte 48 operaciones de planner por tick entre población, refuerzos y controladores,
+además de la deadline best-effort y los límites de candidatos y frecuencia. Una consulta de
+pathfinding ya iniciada no puede interrumpirse a mitad de llamada. Nunca se carga un chunk para
+completar una táctica.
+
+El gobernador ignora transitorios durante los primeros 100 ticks del runtime. Llegar de inmediato a
+nivel 6 requiere dos muestras de emergencia consecutivas; una sola no basta. El comando
+`/threatdirector performance reset` vuelve a nivel 0, limpia contadores y abre otros 100 ticks de
+warm-up, pero no deshabilita la degradación posterior si la carga sostenida continúa.
 
 ## Compatibilidad futura
 
@@ -255,6 +295,7 @@ asumir un ID del modpack.
   compatibilidad, telemetría, simulación de breach y gobernador.
 - Los GameTests de goals, spawn seguro y lifecycle quedan como siguiente nivel de cobertura.
 - El arranque dedicado se prueba con solo Fabric API y Threat Director.
+- Un cliente remoto vanilla, sin el mod, se prueba contra dedicado y contra un host LAN modificado.
 - Escenarios manuales reproducibles descritos en `MANUAL_TESTS.md`.
 - Cada incremento debe ejecutar `gradlew.bat build`; no se afirma compatibilidad de runtime sin
   arrancar cliente y servidor.
@@ -277,7 +318,7 @@ solo publica sus extensiones si `register` termina por completo; una excepción 
 | Riesgo | Mitigación del MVP |
 | --- | --- |
 | Conflicto con IA de otro mod | Solo cuatro tipos vanilla exactos; goals inactivos sin orden |
-| Pathfinding costoso | Dos paths máximos por mob y planificación espaciada |
+| Pathfinding costoso | Cuatro paths base por mob, uno contextual extra con peligro alto, 48 operaciones globales y planificación espaciada |
 | Spawn injusto | Distancia 28–48, chunks cargados, cono frontal excluido y reglas vanilla |
 | Saturación de entidades | Threat Budget, cap local y máximo de controladores |
 | Creepers/griefing | Sin spawn dirigido; con `mobGriefing=true` tampoco se reclutan sin opt-in |

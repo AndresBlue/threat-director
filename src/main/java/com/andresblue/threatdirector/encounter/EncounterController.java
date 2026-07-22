@@ -58,6 +58,7 @@ import java.util.function.Predicate;
 
 public final class EncounterController {
     public static final String MANAGED_TAG = "threatdirector_managed";
+    static final long FULLY_UNLOADED_ROSTER_GRACE_TICKS = 200L;
 
     private final UUID encounterId;
     private final ServerWorld world;
@@ -96,12 +97,16 @@ public final class EncounterController {
     private long nextStalkingCueTick;
     private boolean cleanupComplete;
     private boolean finished;
+    private long lastReinforcementTick;
+    private int reinforcementWaves;
     private int performanceLevel;
     private int orderLifetimeTicks = 100;
     private int plannerOperationBudget;
     private int lastPlannerOperationsUsed;
     private Set<UUID> lastRoleMemberIds = Set.of();
     private boolean targetPerceivedThisTick;
+    private EncounterPressure currentPressure;
+    private long fullyUnloadedSinceTick = Long.MIN_VALUE;
 
     public EncounterController(
             UUID encounterId,
@@ -149,8 +154,12 @@ public final class EncounterController {
                 aiInstaller.install(mob);
             });
         }
+        // Initial recruitment can spend only baseTotal. Reinforcements may consume the dedicated
+        // lifetime reserve once the committed initial roster is fully registered.
+        budget.unlockReinforcementReserve();
         this.lastRoleMemberIds = Set.copyOf(memberCosts.keySet());
         this.initialThreat = threat;
+        this.lastReinforcementTick = startTick;
         this.nextStalkingCueTick = startTick + 60L;
         start(startTick, startingIntensity);
     }
@@ -169,6 +178,9 @@ public final class EncounterController {
         this.plannerOperationBudget = Math.max(0, plannerOperationBudget);
         lastPlannerOperationsUsed = 0;
         ServerPlayerEntity target = target();
+        if (target != null) {
+            currentPressure = EncounterPressure.calculate(config, playerState, target);
+        }
         List<MobEntity> living = livingMobs();
         if (governorLevel >= 6) {
             TransitionResult shed = stateMachine.step(runtime, snapshot(target, living, playerState, tick, false));
@@ -179,7 +191,17 @@ public final class EncounterController {
             return;
         }
         living = releaseMembersAttackedByOtherPlayers(target, living);
-        pruneMissingMembers(living);
+        retireResolvedDeadMembers();
+        RosterAvailability rosterAvailability = rosterAvailability(
+                memberCosts.size(), living.size(), fullyUnloadedSinceTick, tick);
+        fullyUnloadedSinceTick = rosterAvailability.fullyUnloadedSinceTick();
+        if (rosterAvailability.withinGrace()
+                && canAwaitFullyUnloadedRoster(target)) {
+            // EntityLookup does not expose mobs whose chunks are unloaded. Keep their UUIDs,
+            // threat allocations and global ownership while the chunks have a chance to return.
+            targetPerceivedThisTick = false;
+            return;
+        }
         reassignRolesIfMembershipChanged(living);
         updatePerception(target, living, tick);
 
@@ -261,14 +283,22 @@ public final class EncounterController {
         if (target == null) {
             return;
         }
-        for (MobEntity mob : living) {
+        for (int index = 0; index < living.size(); index++) {
+            MobEntity mob = living.get(index);
             long orderNow = mob.getWorld().getTime();
-            Vec3d destination = blackboard.position(mob.getUuid()).orElse(mob.getPos());
+            // Members without an expensive path-validated sector slot still advance toward a
+            // shared rally ring instead of freezing when the planner slice is exhausted.
+            int formationIndex = index;
+            Vec3d destination = blackboard.position(mob.getUuid()).orElseGet(
+                    () -> fallbackRallyPoint(target, mob, formationIndex, living.size()));
             if (mob.squaredDistanceTo(destination) <= 4.0) {
                 orderStore.issue(mob, MobOrder.hold(encounterId, orderNow + orderDuration(40)));
             } else {
+                double speed = currentPressure == null
+                        ? 1.05
+                        : 1.05 + currentPressure.hazard() * 0.15;
                 orderStore.issue(mob, MobOrder.moveTo(
-                        encounterId, destination, 1.05, orderNow + orderDuration(80)));
+                        encounterId, destination, speed, orderNow + orderDuration(80)));
             }
         }
         if (runtime.state() == EncounterState.STALKING && tick >= nextStalkingCueTick) {
@@ -310,7 +340,10 @@ public final class EncounterController {
                         != TacticalRole.HARASSER)
                 .sorted(Comparator.comparing(mob -> mob.getUuid().toString()))
                 .toList();
-        int meleeLimit = Math.min(config.tactical().maxSimultaneousMeleeAttackers(), melee.size());
+        int contextualMelee = currentPressure == null
+                ? config.tactical().maxSimultaneousMeleeAttackers()
+                : currentPressure.meleeAttackers();
+        int meleeLimit = Math.min(contextualMelee, melee.size());
         int rotation = melee.isEmpty() ? 0 : (int) ((tick / 60L) % melee.size());
         List<ServerPlayerEntity> groupTargets = combatTargets(target, living);
         if (groupTargets.isEmpty()) {
@@ -335,9 +368,14 @@ public final class EncounterController {
                 mob.setTarget(assignedTarget);
             } else {
                 mob.setTarget(null);
-                Vec3d hold = blackboard.position(mob.getUuid()).orElse(mob.getPos());
+                Vec3d hold = blackboard.position(mob.getUuid()).orElseGet(
+                        () -> fallbackRallyPoint(
+                                target, mob, living.indexOf(mob), living.size()));
                 orderStore.issue(mob, MobOrder.moveTo(
-                        encounterId, hold, 1.0, orderNow + orderDuration(60)));
+                        encounterId,
+                        hold,
+                        currentPressure == null ? 1.0 : 1.0 + currentPressure.hazard() * 0.12,
+                        orderNow + orderDuration(60)));
             }
         }
     }
@@ -384,8 +422,11 @@ public final class EncounterController {
                 .toList();
         ArrayList<MobEntity> ordered = new ArrayList<>(orderedBase);
         if (!ordered.isEmpty()) {
+            int replanInterval = currentPressure == null
+                    ? config.tactical().replanIntervalTicks()
+                    : currentPressure.replanIntervalTicks();
             int offset = (int) Math.floorMod(
-                    tick / Math.max(1, config.tactical().replanIntervalTicks()), ordered.size());
+                    tick / Math.max(1, replanInterval), ordered.size());
             java.util.Collections.rotate(ordered, -offset);
         }
         int remainingPathAttempts = Math.min(
@@ -412,7 +453,11 @@ public final class EncounterController {
                     world,
                     mob,
                     target,
-                    Math.min(config.tactical().maxPathAttemptsPerMob(), remainingPathAttempts));
+                    Math.min(
+                            config.tactical().maxPathAttemptsPerMob()
+                                    + (currentPressure != null
+                                            && currentPressure.hazard() >= 0.70 ? 1 : 0),
+                            remainingPathAttempts));
             int candidateLimit = Math.max(1, Math.min(
                     config.tactical().maxCandidatesPerSnapshot(),
                     performanceCandidateLimit(performanceLevel)));
@@ -478,7 +523,9 @@ public final class EncounterController {
                 .max().orElse(0.0);
         PatternContext context = new PatternContext(
                 runtime.state(),
-                state.intensity(),
+                currentPressure == null
+                        ? state.intensity()
+                        : currentPressure.effectiveIntensity(),
                 living.size(),
                 wingCandidates,
                 oppositePairDot,
@@ -723,8 +770,8 @@ public final class EncounterController {
             PlayerDirectorState playerState,
             long tick,
             boolean startRequested) {
-        int remainingThreat = living.stream()
-                .mapToInt(mob -> memberCosts.getOrDefault(mob.getUuid(), 0))
+        int remainingThreat = memberCosts.values().stream()
+                .mapToInt(Integer::intValue)
                 .sum();
         int positioned = (int) living.stream().filter(mob -> blackboard.position(mob.getUuid())
                 .map(position -> mob.squaredDistanceTo(position) <= 9.0)
@@ -742,18 +789,25 @@ public final class EncounterController {
         double dominance = playerState.breakdown() == null ? 0.0 : playerState.breakdown().dominance();
         boolean valid = target != null && combatTargetEligibility.test(target);
         boolean sameDimension = target != null && target.getServerWorld() == world;
-        boolean pursuitViable = target == null || target.getPos().squaredDistanceTo(encounterOrigin)
-                <= square(config.encounter().maxPursuitDistance());
+        boolean fullyUnloadedGraceExpired = !memberCosts.isEmpty()
+                && living.isEmpty()
+                && fullyUnloadedSinceTick != Long.MIN_VALUE
+                && tick - fullyUnloadedSinceTick >= FULLY_UNLOADED_ROSTER_GRACE_TICKS;
+        boolean pursuitViable = !fullyUnloadedGraceExpired
+                && (target == null || target.getPos().squaredDistanceTo(encounterOrigin)
+                        <= square(config.encounter().maxPursuitDistance()));
         boolean disengaged = target == null || living.stream().allMatch(mob ->
                 mob.squaredDistanceTo(target) > 18.0 * 18.0);
         return new EncounterSnapshot(
                 encounterId,
                 targetPlayerId,
                 tick,
-                playerState.intensity(),
+                currentPressure == null
+                        ? playerState.intensity()
+                        : currentPressure.effectiveIntensity(),
                 remainingThreat,
                 initialThreat,
-                living.size(),
+                memberCosts.size(),
                 positioned,
                 contactAge,
                 startRequested,
@@ -788,7 +842,10 @@ public final class EncounterController {
         if (blackboard.lastPlanTick() == Long.MIN_VALUE) {
             return true;
         }
-        if (tick - blackboard.lastPlanTick() >= config.tactical().replanIntervalTicks()) {
+        int replanInterval = currentPressure == null
+                ? config.tactical().replanIntervalTicks()
+                : currentPressure.replanIntervalTicks();
+        if (tick - blackboard.lastPlanTick() >= replanInterval) {
             return true;
         }
         return lastPlanAnchor == null || lastPlanAnchor.squaredDistanceTo(target.getPos())
@@ -871,12 +928,51 @@ public final class EncounterController {
         }
     }
 
-    private void pruneMissingMembers(List<MobEntity> living) {
-        Map<UUID, MobEntity> byId = new HashMap<>();
-        living.forEach(mob -> byId.put(mob.getUuid(), mob));
-        memberCosts.keySet().stream()
-                .filter(id -> !byId.containsKey(id))
-                .forEach(blackboard::remove);
+    private void retireResolvedDeadMembers() {
+        List<UUID> confirmedDead = memberCosts.keySet().stream()
+                .filter(mobId -> {
+                    Entity entity = world.getEntity(mobId);
+                    return entity instanceof MobEntity mob && !mob.isAlive();
+                })
+                .toList();
+        confirmedDead.forEach(this::confirmMobDeath);
+    }
+
+    /** Retires one member only after the server has explicitly confirmed its death. */
+    public boolean confirmMobDeath(UUID mobId) {
+        return retireMember(mobId);
+    }
+
+    private boolean retireMember(UUID mobId) {
+        if (mobId == null || !memberCosts.containsKey(mobId)) {
+            return false;
+        }
+        resolveMob(mobId).ifPresent(mob -> {
+            mob.setTarget(null);
+            mob.removeScoreboardTag(MANAGED_TAG);
+        });
+        memberCosts.remove(mobId);
+        memberProfiles.remove(mobId);
+        directorSpawnedMobIds.remove(mobId);
+        budget.retireMob(mobId);
+        blackboard.remove(mobId);
+        orderStore.clearMobs(List.of(mobId));
+        return true;
+    }
+
+    private boolean canAwaitFullyUnloadedRoster(ServerPlayerEntity target) {
+        if (target == null
+                || !combatTargetEligibility.test(target)
+                || target.getServerWorld() != world
+                || target.getPos().squaredDistanceTo(encounterOrigin)
+                        > square(config.encounter().maxPursuitDistance())
+                || inSpawnProtection(target)) {
+            return false;
+        }
+        return switch (runtime.state()) {
+            case STALKING, POSITIONING, ENGAGING, SEARCHING, CLIMAX -> true;
+            default -> false;
+        };
     }
 
     private void reassignRolesIfMembershipChanged(List<MobEntity> living) {
@@ -906,10 +1002,7 @@ public final class EncounterController {
                     && !isEncounterGroupMember(attacker, target)) {
                 orderStore.clear(mob);
                 mob.removeScoreboardTag(MANAGED_TAG);
-                memberCosts.remove(mob.getUuid());
-                memberProfiles.remove(mob.getUuid());
-                budget.releaseMob(mob.getUuid());
-                blackboard.remove(mob.getUuid());
+                retireMember(mob.getUuid());
             } else {
                 retained.add(mob);
             }
@@ -1020,13 +1113,29 @@ public final class EncounterController {
         return mob.getPos().add(horizontal.multiply(12.0));
     }
 
+    private Vec3d fallbackRallyPoint(
+            ServerPlayerEntity target, MobEntity mob, int index, int groupSize) {
+        Vec3d radial = mob.getPos().subtract(target.getPos());
+        Vec3d horizontal;
+        if (radial.horizontalLengthSquared() < 0.01) {
+            double angle = Math.PI * 2.0 * index / Math.max(1, groupSize);
+            horizontal = new Vec3d(Math.cos(angle), 0.0, Math.sin(angle));
+        } else {
+            horizontal = new Vec3d(radial.x, 0.0, radial.z).normalize();
+        }
+        double radius = Math.min(
+                config.tactical().positionMaxRadius(),
+                config.tactical().positionMinRadius() + 2.0);
+        return target.getPos().add(horizontal.multiply(radius));
+    }
+
     private static int performanceCandidateLimit(int level) {
         return switch (Math.max(0, Math.min(6, level))) {
-            case 0 -> 16;
-            case 1 -> 14;
-            case 2 -> 10;
-            case 3 -> 8;
-            case 4 -> 6;
+            case 0 -> 32;
+            case 1 -> 28;
+            case 2 -> 20;
+            case 3 -> 14;
+            case 4 -> 8;
             case 5 -> 4;
             default -> 1;
         };
@@ -1112,6 +1221,62 @@ public final class EncounterController {
         return Set.copyOf(memberCosts.keySet());
     }
 
+    public boolean canReinforce(
+            long tick, int intervalTicks, int maximumWaves, int minimumLivingMobs) {
+        if (finished
+                || reinforcementWaves >= Math.max(0, maximumWaves)
+                || tick - lastReinforcementTick < Math.max(1, intervalTicks)
+                || !targetPerceivedThisTick
+                || (runtime.state() != EncounterState.ENGAGING
+                        && runtime.state() != EncounterState.CLIMAX)) {
+            return false;
+        }
+        int living = livingCount();
+        return living >= Math.max(2, minimumLivingMobs)
+                && living == memberCosts.size()
+                && budget.mobCount() < budget.mobCountCap();
+    }
+
+    /** Adds one bounded reinforcement wave whose budget allocations were already committed. */
+    public int addPopulation(EncounterPopulation population, long tick) {
+        if (finished || population == null || population.members().isEmpty()) {
+            return 0;
+        }
+        for (EncounterPopulation.Member member : population.members()) {
+            UUID mobId = member.profile().id();
+            if (memberCosts.containsKey(mobId) || resolveMob(mobId).isEmpty()) {
+                return 0;
+            }
+        }
+        for (EncounterPopulation.Member member : population.members()) {
+            UUID mobId = member.profile().id();
+            memberCosts.put(mobId, member.threatCost());
+            memberProfiles.put(mobId, member.profile());
+            if (member.origin() == EncounterPopulation.Origin.DIRECTOR_SPAWNED) {
+                directorSpawnedMobIds.add(mobId);
+            }
+            resolveMob(mobId).ifPresent(mob -> {
+                mob.setTarget(null);
+                mob.addCommandTag(MANAGED_TAG);
+                aiInstaller.install(mob);
+            });
+        }
+        lastRoleMemberIds = Set.of();
+        reassignRolesIfMembershipChanged(livingMobs());
+        reinforcementWaves++;
+        lastReinforcementTick = tick;
+        executePhase(target(), livingMobs(), tick);
+        return population.members().size();
+    }
+
+    public void deferReinforcement(long tick) {
+        lastReinforcementTick = tick;
+    }
+
+    public int reinforcementWaves() {
+        return reinforcementWaves;
+    }
+
     public int livingCount() {
         return livingMobs().size();
     }
@@ -1123,4 +1288,29 @@ public final class EncounterController {
     public int lastPlannerOperationsUsed() {
         return lastPlannerOperationsUsed;
     }
+
+    static RosterAvailability rosterAvailability(
+            int rosterCount, int livingCount, long previousFullyUnloadedTick, long tick) {
+        int roster = Math.max(0, rosterCount);
+        int living = Math.max(0, Math.min(roster, livingCount));
+        boolean hasUnresolvedMembers = living < roster;
+        boolean fullyUnloaded = roster > 0 && living == 0;
+        long since = fullyUnloaded
+                ? previousFullyUnloadedTick == Long.MIN_VALUE
+                        ? tick
+                        : previousFullyUnloadedTick
+                : Long.MIN_VALUE;
+        long elapsed = since == Long.MIN_VALUE ? Long.MAX_VALUE : Math.max(0L, tick - since);
+        return new RosterAvailability(
+                hasUnresolvedMembers,
+                fullyUnloaded,
+                fullyUnloaded && elapsed < FULLY_UNLOADED_ROSTER_GRACE_TICKS,
+                since);
+    }
+
+    record RosterAvailability(
+            boolean hasUnresolvedMembers,
+            boolean fullyUnloaded,
+            boolean withinGrace,
+            long fullyUnloadedSinceTick) {}
 }

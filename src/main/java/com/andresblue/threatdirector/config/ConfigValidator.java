@@ -142,8 +142,8 @@ public final class ConfigValidator {
         if (section.maxMobs() > section.hardMaxMobs()) {
             errors.add("encounter.maxMobs must be <= hardMaxMobs");
         }
-        if (section.hardMaxMobs() > 10) {
-            errors.add("encounter.hardMaxMobs must be <= 10");
+        if (section.hardMaxMobs() > 16) {
+            errors.add("encounter.hardMaxMobs must be <= 16");
         }
         positive("encounter.maxActiveEncounters", section.maxActiveEncounters(), errors);
         positive("encounter.recruitRadius", section.recruitRadius(), errors);

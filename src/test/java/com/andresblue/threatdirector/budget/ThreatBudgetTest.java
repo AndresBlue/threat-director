@@ -17,6 +17,7 @@ class ThreatBudgetTest {
         assertBudget(72.5, 7_250);
         assertBudget(85, 9_000);
         assertBudget(100, 12_000);
+        assertEquals(12, ThreatBudget.forIntensity(100, 12, 1, 0).mobCountCap());
     }
 
     @Test
@@ -53,6 +54,29 @@ class ThreatBudgetTest {
         assertEquals(7_425, groupBudget.total());
         assertEquals(8, groupBudget.mobCountCap());
         assertEquals(8, ThreatBudget.scaledMobCap(6, 8, duo));
+    }
+
+    @Test
+    void reinforcementReserveIsLifetimeBudgetAndDefeatedMobsAreNotRefunded() {
+        ThreatBudget budget = ThreatBudget.forIntensity(100, 12, 1, 0, 1, 1);
+        UUID first = UUID.randomUUID();
+
+        assertEquals(12_000, budget.baseTotal());
+        assertEquals(12_000, budget.reinforcementReserve());
+        assertEquals(24_000, budget.total());
+        assertEquals(12_000, budget.remaining(), "reserve stays locked for initial population");
+        assertTrue(budget.allocateMob(first, 1_000));
+        int afterAllocation = budget.remaining();
+        budget.retireMob(first);
+
+        assertEquals(afterAllocation, budget.remaining());
+        assertEquals(1_000, budget.retiredMobThreat());
+        assertEquals(0, budget.spentOnMobs());
+        budget.unlockReinforcementReserve();
+        assertTrue(budget.reinforcementReserveUnlocked());
+        assertEquals(23_000, budget.remaining());
+        assertFalse(budget.reservePattern("reserve-only", 12_000));
+        assertTrue(budget.allocateMob(UUID.randomUUID(), 12_000));
     }
 
     private static void assertBudget(double intensity, int expected) {

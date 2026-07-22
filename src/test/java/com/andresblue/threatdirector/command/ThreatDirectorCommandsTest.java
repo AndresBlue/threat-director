@@ -26,5 +26,8 @@ class ThreatDirectorCommandsTest {
         assertNotNull(hud);
         assertNotNull(hud.getChild("on"));
         assertNotNull(hud.getChild("off"));
+        CommandNode<ServerCommandSource> performance = root.getChild("performance");
+        assertNotNull(performance);
+        assertNotNull(performance.getChild("reset"));
     }
 }

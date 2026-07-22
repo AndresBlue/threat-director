@@ -9,7 +9,8 @@ explícitamente como fases posteriores.
 ## Preparación
 
 1. Ejecutar `gradlew.bat clean build`.
-2. Iniciar una instancia Fabric 1.20.1 con solo Fabric API y Threat Director.
+2. Iniciar una instancia Fabric 1.20.1 con solo Fabric API y Threat Director en el lado servidor.
+   Preparar además un cliente remoto 1.20.1 sin Threat Director para los casos LAN/dedicado.
 3. Crear un mundo de pruebas en dificultad Normal, cheats activos y clima despejado.
 4. Conservar una copia del mundo y del JSON antes de cada bloque de escenarios.
 5. Activar logs detallados solo durante diagnóstico para no alterar mediciones normales.
@@ -26,8 +27,9 @@ entidades ni validación de posiciones.
 1. Eliminar únicamente `config/threatdirector.json` con el juego detenido.
 2. Iniciar el servidor.
 
-Esperado: se crea JSON UTF-8 legible con schema 1 y preset `VANILLA_PLUS`; el servidor continúa sin
-errores y la configuración reportada coincide con los defaults.
+Esperado: se crea JSON UTF-8 legible con schema 2 y preset `VANILLA_PLUS`; el servidor continúa sin
+errores. Entre los defaults figuran `maxMobs=8`, `hardMaxMobs=12`, 32 candidatos, cuatro intentos de
+path por mob, replan base de 30 ticks y 48 operaciones globales de planner por tick.
 
 ### CFG-02 — JSON malformado
 
@@ -36,11 +38,11 @@ errores y la configuración reportada coincide con los defaults.
 3. Ejecutar `/threatdirector config reload`.
 
 Esperado: la recarga falla con ubicación o causa clara, el archivo no se sobrescribe y el servidor
-continúa usando exactamente la snapshot anterior.
+continúa usando la última configuración válida.
 
 ### CFG-03 — valores incoherentes
 
-Establecer `minMobs: 9`, `maxMobs: 6`, invertir las distancias de spawn y hacer que un batch de
+Establecer `minMobs: 9`, `maxMobs: 8`, invertir las distancias de spawn y hacer que un batch de
 telemetría exceda la cola.
 
 Esperado: un solo error informa todas las infracciones relevantes y no activa parcialmente ninguna
@@ -56,16 +58,39 @@ ninguna clase externa.
 
 ### CFG-05 — reload válido
 
-1. Reducir `encounter.maxMobs` de 6 a 5 manteniendo `minMobs <= maxMobs <= hardMaxMobs`.
+1. Reducir `encounter.maxMobs` de 8 a 7 manteniendo `minMobs <= maxMobs <= hardMaxMobs`.
 2. Recargar durante un encuentro activo.
 
-Esperado: el encuentro activo conserva su snapshot; el siguiente respeta el nuevo máximo.
+Esperado: la nueva configuración se publica completa, sin estado parcial ni error. El controlador
+activo conserva sus parámetros de construcción para FSM y táctica; seguridad, refuerzos,
+finalización/cooldown y el gobernador consultan la configuración vigente. Su población no se reduce
+retroactivamente. El siguiente encuentro nace por completo con el nuevo máximo normal.
 
 ### CFG-06 — identifiers y costes
 
 Introducir una dimensión con mayúsculas, duplicar otra y agregar un mob permitido sin threat cost.
 
 Esperado: las tres condiciones se reportan y el JSON anterior continúa activo.
+
+### CFG-07 — migración del preset v1 intacto
+
+1. Con el servidor detenido, reemplazar el archivo por el JSON exacto generado por el preset
+   `VANILLA_PLUS` schema 1 de la versión anterior.
+2. Iniciar el servidor y volver a leer el archivo.
+
+Esperado: se migra y reescribe atómicamente como schema 2 con todos los defaults nuevos, incluidos
+8/12 mobs, 32 candidatos, cuatro paths, replan 30 y 48 operaciones. No queda archivo temporal ni se
+requiere editarlo a mano.
+
+### CFG-08 — migración v1 personalizada y schema desconocido
+
+1. Partir del JSON schema 1 anterior, cambiar valores válidos distintivos —por ejemplo
+   `maxMobs=5`, `hardMaxMobs=7` y una probabilidad personalizada— y arrancar.
+2. Confirmar la reescritura, cambiar `schemaVersion` a 99 con el servidor activo y ejecutar reload.
+
+Esperado: en el primer arranque solo cambia a schema 2 y los valores personalizados se preservan.
+El schema 99 se rechaza, no se reescribe y la última configuración válida en memoria continúa
+activa.
 
 ## Adventure Intensity
 
@@ -146,8 +171,10 @@ en Engaging. El feedback informa threat, mobs y budget. Repetir con las demás e
 
 Forzar un encuentro con jugador full diamond en campo abierto y noche cerrada.
 
-Esperado: 3–6 mobs, presupuesto no negativo, ningún spawn en visión inmediata y transición completa
-Stalking → Positioning → Engaging → Relief.
+Esperado: la población alcanza el mínimo contextual y no supera el `mobCap` reportado, el Threat
+Budget ni el máximo difícil 12; ningún spawn aparece en visión inmediata. La ruta normal completa
+Stalking → Positioning → Engaging → Relief, o pasa por Climax → Retreating cuando se cumplen sus
+condiciones, sin transiciones ilegales.
 
 ### ENC-02 — composición vanilla
 
@@ -211,6 +238,40 @@ Morir y, en otra repetición, desconectarse durante cada fase.
 Esperado: limpieza idempotente, cooldown correcto, telemetría con causa y ninguna excepción por
 UUID ausente.
 
+### ENC-11 — Hard en bosque nocturno
+
+1. Activar telemetría local, fijar el mismo equipo/intensidad y situarse en la superficie de un
+   bosque a medianoche.
+2. Forzar una ejecución en Normal y otra en Hard desde la misma zona, sin cambiar luz ni grupo.
+
+Esperado: Hard reporta mayor `danger` que Normal, una zona `hard:night` que puede añadir `dark` si
+la luz local es 7 o menor, y presión no inferior en cap, mínimo contextual, atacantes y frecuencia
+táctica. El bioma bosque no añade una etiqueta propia: la zona depende de dificultad, noche, luz,
+cielo y altura. Se mantienen visión, chunks, población y Threat Budget seguros.
+
+### ENC-12 — Hard en cueva oscura
+
+1. En Hard y a medianoche, comparar una posición de superficie con otra bajo el nivel del mar, sin
+   visión del cielo y con luz local 7 o menor.
+2. Mantener equipo, intensidad y grupo idénticos y forzar un encuentro en cada posición.
+
+Esperado: la cueva reporta `hard:night+dark+cave` y peligro 1.0, limitado sin overflow. Frente a la
+superficie, la presión contextual no disminuye: puede acercar el cap a 12, elevar el mínimo hasta 5,
+acelerar replans y habilitar refuerzos mayores. Ninguna de esas ventajas omite reglas vanilla de
+spawn o límites de seguridad.
+
+### ENC-13 — oleadas de refuerzo acotadas
+
+1. Usar Hard en cueva oscura, intensidad alta, telemetría activa y espacio de spawn cargado.
+2. Mantener el encuentro en Engaging, Searching o Climax con al menos dos mobs vivos y liberar
+   espacio de cap/presupuesto entre intervalos derrotando miembros de forma controlada.
+3. Registrar todos los eventos `encounter.reinforced` hasta terminar el encuentro.
+
+Esperado: pueden completarse como máximo cuatro oleadas de refuerzo; nunca aparece una quinta. Cada
+evento incrementa `wave`, informa zona/peligro y añade solo lo permitido por tamaño contextual,
+Threat Budget, cap del encuentro, máximo difícil 12, ownership y presupuesto global del planner. Si
+no existe población segura o quedan menos de dos mobs, se difiere o cancela la oleada sin forzarla.
+
 ## Multijugador
 
 ### MP-01 — dos jugadores juntos
@@ -234,14 +295,28 @@ Un tercer jugador golpea un mob mientras este acecha.
 Esperado: el mob puede defenderse o se libera del director; la compuerta táctica no lo vuelve
 incapaz de responder indefinidamente.
 
+### MP-04 — host LAN preferido y cliente sin mod
+
+1. El host inicia un mundo integrado con Fabric API y Threat Director y lo abre a LAN.
+2. Un segundo cliente Minecraft 1.20.1 sin Threat Director entra, equipa más potencia que el host y
+   permanece en Survival dentro de `groupRadius`.
+3. Esperar un scan automático elegible —no usar inicio forzado— y observar HUD y target primario.
+
+Esperado: el cliente remoto conecta sin handshake, canal ni paquete del mod y ve su bossbar vanilla.
+El host LAN es el target primario preferido aunque el invitado tenga mayor potencia; el invitado
+participa como miembro del grupo y su barra muestra `GRUPO`. Al salir del encuentro desaparece la
+marca compartida; al desconectarse o cerrar el mundo se limpian barras y referencias retenidas.
+
 ## Rendimiento y degradación
 
 ### PERF-01 — límites de planner
 
 Visualizar candidatos y provocar replans desplazándose rápidamente.
 
-Esperado: nunca se superan 16 candidatos por snapshot, dos paths por mob y el presupuesto global de
-operaciones por tick compartido entre formación de población y controladores activos.
+Esperado: a nivel 0 nunca se superan 32 candidatos por snapshot ni 48 operaciones globales por tick,
+compartidas entre población inicial, refuerzos y controladores activos. Se permiten cuatro intentos
+base de path por mob y solo un quinto contextual cuando `danger >= 0.70`. El replan base es 30 ticks
+antes de ajustes de presión y gobernador.
 
 ### PERF-02 — servidor bajo carga
 
@@ -262,13 +337,37 @@ Huir hacia el borde de simulación durante Positioning.
 
 Esperado: el director no fuerza carga de chunks y descarta candidatos fuera del área cargada.
 
+### PERF-05 — warm-up y reset administrativo
+
+1. Al arrancar, provocar picos de carga durante los primeros 100 ticks y observar el nivel.
+2. Después del warm-up, mantener carga suficiente para degradar el gobernador.
+3. Tras comprobar la causa, ejecutar `/threatdirector performance reset` y continuar observando
+   durante más de 100 ticks.
+
+Esperado: los picos iniciales no degradan. El reset devuelve a nivel 0, limpia muestras acumuladas y
+abre un nuevo warm-up de 100 ticks; no amplía caps ni borra encuentros por sí mismo. Si la carga
+sostenida persiste después, el gobernador vuelve a degradar normalmente.
+
+### PERF-06 — emergencia de dos muestras
+
+Después del warm-up, generar de forma controlada una muestra por encima del umbral de nivel 6,
+recuperar la siguiente ventana de 20 ticks y repetir; después generar dos muestras críticas
+consecutivas.
+
+Esperado: una muestra crítica aislada no activa nivel 6 y una ventana no crítica reinicia la cuenta.
+Dos muestras críticas consecutivas sí llevan a nivel 6 y devuelven temporalmente los encuentros a
+IA vanilla.
+
 ## Compatibilidad y fallo seguro
 
 ### COMP-01 — instalación mínima
 
-Arrancar cliente integrado y servidor dedicado con solo Fabric API y Threat Director.
+Arrancar un host integrado y un servidor dedicado con solo Fabric API y Threat Director en el lado
+servidor. Conectar a cada uno un cliente remoto Minecraft 1.20.1 sin el mod.
 
-Esperado: carga completa sin referencias opcionales, comandos disponibles y preset Vanilla Plus.
+Esperado: carga completa sin referencias opcionales, comandos disponibles, preset Vanilla Plus y
+conexión de los clientes sin instalar Threat Director. El host integrado sí lleva el mod porque
+ejecuta el servidor; HUD, IA y configuración siguen siendo autoritativos del servidor.
 
 ### COMP-02 — mob externo próximo
 
@@ -294,7 +393,10 @@ Esperado: toda acción destructiva se deniega. La simulación explica que no pud
 - Build y JUnit pasan desde checkout limpio; los GameTests están planificados como siguiente capa.
 - Cliente integrado y servidor dedicado deben arrancar sin mods externos; ambos son escenarios de
   aceptación manual, no una afirmación cubierta por JUnit.
-- Se reproducen ENC-01, ENC-03 y ENC-04 con un máximo de seis mobs por defecto.
+- Un cliente remoto 1.20.1 sin Threat Director conecta a dedicado y LAN, recibe la bossbar vanilla
+  y en LAN el host es el target automático preferido del grupo.
+- Se reproducen ENC-01, ENC-03, ENC-04 y ENC-11 a ENC-13 con máximo normal 8, máximo difícil 12 y no
+  más de cuatro oleadas de refuerzo.
 - No existe ninguna modificación de bloques causada por BreachPlanner.
 - Un fallo de config, telemetría o integración no sustituye la última configuración válida ni
   detiene el servidor.
