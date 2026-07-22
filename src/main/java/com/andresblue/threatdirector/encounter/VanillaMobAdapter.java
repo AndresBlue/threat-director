@@ -16,20 +16,29 @@ import net.minecraft.entity.attribute.EntityAttributeInstance;
 import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.mob.MobEntity;
 
-/** Bridges exactly the four vanilla MVP entity types into generic Threat Director profiles. */
+/** Bridges supported vanilla entity types into generic Threat Director profiles. */
 public final class VanillaMobAdapter {
     public static final String ZOMBIE_ID = "minecraft:zombie";
     public static final String SKELETON_ID = "minecraft:skeleton";
     public static final String SPIDER_ID = "minecraft:spider";
     public static final String CREEPER_ID = "minecraft:creeper";
+    public static final String PILLAGER_ID = "minecraft:pillager";
+    public static final String VINDICATOR_ID = "minecraft:vindicator";
+    public static final String EVOKER_ID = "minecraft:evoker";
+    public static final String RAVAGER_ID = "minecraft:ravager";
 
     private static final List<String> SUPPORTED_IDS =
-            List.of(ZOMBIE_ID, SKELETON_ID, SPIDER_ID, CREEPER_ID);
+            List.of(ZOMBIE_ID, SKELETON_ID, SPIDER_ID, CREEPER_ID,
+                    PILLAGER_ID, VINDICATOR_ID, EVOKER_ID, RAVAGER_ID);
     private static final Map<String, EntityType<? extends MobEntity>> ENTITY_TYPES = Map.of(
             ZOMBIE_ID, EntityType.ZOMBIE,
             SKELETON_ID, EntityType.SKELETON,
             SPIDER_ID, EntityType.SPIDER,
-            CREEPER_ID, EntityType.CREEPER);
+            CREEPER_ID, EntityType.CREEPER,
+            PILLAGER_ID, EntityType.PILLAGER,
+            VINDICATOR_ID, EntityType.VINDICATOR,
+            EVOKER_ID, EntityType.EVOKER,
+            RAVAGER_ID, EntityType.RAVAGER);
 
     private final MobTraitRegistry traitRegistry;
 
@@ -59,7 +68,8 @@ public final class VanillaMobAdapter {
                 Math.max(0, mob.getArmor()),
                 attributeValue(mob, EntityAttributes.GENERIC_ATTACK_DAMAGE),
                 attributeValue(mob, EntityAttributes.GENERIC_MOVEMENT_SPEED),
-                mob.getType() == EntityType.SKELETON ? 1.0 : 0.0,
+                mob.getType() == EntityType.SKELETON || mob.getType() == EntityType.PILLAGER
+                        ? 1.0 : 0.0,
                 mob.isAlive() && !mob.isRemoved());
         return Optional.of(new AdaptedMob(profile, resolution.warnings()));
     }
@@ -111,6 +121,18 @@ public final class VanillaMobAdapter {
         }
         if (type == EntityType.CREEPER) {
             return CREEPER_ID;
+        }
+        if (type == EntityType.PILLAGER) {
+            return PILLAGER_ID;
+        }
+        if (type == EntityType.VINDICATOR) {
+            return VINDICATOR_ID;
+        }
+        if (type == EntityType.EVOKER) {
+            return EVOKER_ID;
+        }
+        if (type == EntityType.RAVAGER) {
+            return RAVAGER_ID;
         }
         return null;
     }

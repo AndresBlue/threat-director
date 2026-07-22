@@ -154,11 +154,36 @@ public final class EncounterPopulationService {
             int effectiveMinimumPopulation,
             int planningOperationBudget,
             long deadlineNanos) {
+        return populate(
+                world,
+                target,
+                budget,
+                excludedMobIds,
+                effectiveMobCap,
+                effectiveMinimumPopulation,
+                planningOperationBudget,
+                deadlineNanos,
+                Set.of());
+    }
+
+    /** Populates while requiring explicitly materialized API participants to join first. */
+    public EncounterPopulation populate(
+            ServerWorld world,
+            ServerPlayerEntity target,
+            ThreatBudget budget,
+            Set<UUID> excludedMobIds,
+            int effectiveMobCap,
+            int effectiveMinimumPopulation,
+            int planningOperationBudget,
+            long deadlineNanos,
+            Set<UUID> requiredParticipantIds) {
         Objects.requireNonNull(world, "world");
         Objects.requireNonNull(target, "target");
         Objects.requireNonNull(budget, "budget");
         Set<UUID> exclusions = Set.copyOf(
                 Objects.requireNonNull(excludedMobIds, "excludedMobIds"));
+        Set<UUID> required = Set.copyOf(
+                requiredParticipantIds == null ? Set.of() : requiredParticipantIds);
 
         List<Member> members = new ArrayList<>();
         List<String> diagnostics = new ArrayList<>();
@@ -185,9 +210,11 @@ public final class EncounterPopulationService {
         int boundedPlanningBudget = Math.max(0, planningOperationBudget);
         // Recruitment and directed spawning share the same global allowance. Reserving most of it
         // for the deficit prevents a handful of unreachable natural mobs from starving formation.
+        int ordinaryRecruitmentBudget = boundedPlanningBudget <= 1
+                ? boundedPlanningBudget : boundedPlanningBudget / 3;
         int recruitmentBudget = Math.min(
-                desiredTotal,
-                boundedPlanningBudget <= 1 ? boundedPlanningBudget : boundedPlanningBudget / 3);
+                Math.min(desiredTotal, boundedPlanningBudget),
+                Math.max(required.size(), ordinaryRecruitmentBudget));
         int initialPathChecks = recruitNaturalMobs(
                 world,
                 target,
@@ -197,7 +224,30 @@ public final class EncounterPopulationService {
                 members,
                 diagnostics,
                 recruitmentBudget,
-                deadlineNanos);
+                deadlineNanos,
+                required);
+
+        Set<UUID> recruitedIds = members.stream()
+                .map(member -> member.profile().id())
+                .collect(java.util.stream.Collectors.toSet());
+        if (!recruitedIds.containsAll(required)) {
+            diagnostics.add("One or more required API participants could not be recruited safely");
+            required.stream().filter(id -> !recruitedIds.contains(id)).forEach(id -> {
+                Entity entity = world.getEntity(id);
+                if (!(entity instanceof MobEntity mob)) {
+                    diagnostics.add("Required participant " + id + " is not a loaded mob");
+                } else {
+                    diagnostics.add("Required participant " + id
+                            + " rejected: type=" + VanillaMobAdapter.exactTypeId(mob.getType())
+                            + ", distance=" + String.format(java.util.Locale.ROOT, "%.1f", mob.distanceTo(target))
+                            + ", persistent=" + mob.isPersistent()
+                            + ", customName=" + mob.hasCustomName()
+                            + ", route=" + hasInitialRoute(mob, target));
+                }
+            });
+            rollback(budget, members, List.of());
+            return new EncounterPopulation(List.of(), 0, diagnostics, initialPathChecks);
+        }
 
         int nearbyHostiles = deadlineReached(deadlineNanos)
                 ? encounter.maxNearbyHostiles()
@@ -230,7 +280,9 @@ public final class EncounterPopulationService {
             diagnostics.add("Planner work deadline was reached; remaining candidates were skipped");
         }
         if (initialBudgetCount + members.size() < minimumTotal) {
-            diagnostics.add("Minimum encounter population was not reached; allocations rolled back");
+            diagnostics.add("Minimum encounter population was not reached: actual="
+                    + (initialBudgetCount + members.size()) + ", minimum=" + minimumTotal
+                    + "; allocations rolled back");
             rollback(budget, members, spawnedEntities);
             return new EncounterPopulation(List.of(), spawnAttempts, diagnostics, planningOperations);
         }
@@ -247,7 +299,8 @@ public final class EncounterPopulationService {
             List<Member> members,
             List<String> diagnostics,
             int maximumPathChecks,
-            long deadlineNanos) {
+            long deadlineNanos,
+            Set<UUID> requiredParticipantIds) {
         if (deadlineReached(deadlineNanos)) {
             return 0;
         }
@@ -264,10 +317,12 @@ public final class EncounterPopulationService {
                         allowedTypes,
                         excludedMobIds,
                         radius,
-                        minimumDistance));
+                        minimumDistance,
+                        requiredParticipantIds));
 
         candidates.sort(Comparator
-                .comparingInt((MobEntity mob) -> isOutsideFrontCone(target, mob.getPos()) ? 0 : 1)
+                .comparingInt((MobEntity mob) -> requiredParticipantIds.contains(mob.getUuid()) ? 0 : 1)
+                .thenComparingInt((MobEntity mob) -> isOutsideFrontCone(target, mob.getPos()) ? 0 : 1)
                 .thenComparingDouble(mob -> horizontalDistanceSquared(target.getPos(), mob.getPos()))
                 .thenComparing(mob -> mob.getUuid().toString()));
 
@@ -280,7 +335,11 @@ public final class EncounterPopulationService {
                 break;
             }
             pathChecks++;
-            if (!hasInitialRoute(candidate, target)) {
+            // An explicit API roster has already passed the caller's materialization checks.
+            // The controller still evaluates navigation every phase and can retreat safely, while
+            // natural recruits retain the stricter up-front path requirement.
+            if (!requiredParticipantIds.contains(candidate.getUuid())
+                    && !hasInitialRoute(candidate, target)) {
                 continue;
             }
             Optional<VanillaMobAdapter.AdaptedMob> adapted = mobAdapter.adapt(candidate);
@@ -469,14 +528,17 @@ public final class EncounterPopulationService {
             Set<String> allowedTypes,
             Set<UUID> excludedMobIds,
             double maximumDistance,
-            double minimumDistance) {
+            double minimumDistance,
+            Set<UUID> requiredParticipantIds) {
+        boolean explicitlyRequired = requiredParticipantIds.contains(mob.getUuid());
         if (!mobAdapter.supports(mob)
-                || !allowedTypes.contains(VanillaMobAdapter.exactTypeId(mob.getType()))
+                || (!explicitlyRequired
+                        && !allowedTypes.contains(VanillaMobAdapter.exactTypeId(mob.getType())))
                 || excludedMobIds.contains(mob.getUuid())
                 || !mob.isAlive()
                 || mob.isRemoved()
-                || mob.isPersistent()
-                || mob.hasCustomName()
+                || (!explicitlyRequired && mob.isPersistent())
+                || (!explicitlyRequired && mob.hasCustomName())
                 || mob.isAiDisabled()
                 || mob.isLeashed()
                 || mob.hasVehicle()

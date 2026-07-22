@@ -31,6 +31,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 
 public final class EncounterManager {
     private static final long ADMINISTRATIVE_MIN_WORK_BUDGET_MICROS = 250_000L;
@@ -43,6 +45,8 @@ public final class EncounterManager {
     private final Map<UUID, EncounterController> encounters = new HashMap<>();
     private final Map<UUID, UUID> encounterByPlayer = new HashMap<>();
     private final MobOwnershipIndex mobOwnership = new MobOwnershipIndex();
+    private final List<Consumer<EncounterTransition>> transitionListeners =
+            new CopyOnWriteArrayList<>();
     private int plannerScheduleCursor;
     private long planningBudgetTick = Long.MIN_VALUE;
     private int remainingPlanningOperations;
@@ -104,7 +108,8 @@ public final class EncounterManager {
                     limits,
                     false,
                     populationBudget,
-                    planningDeadlineNanos);
+                    planningDeadlineNanos,
+                    Set.of());
             if (result.started()) {
                 break;
             }
@@ -115,6 +120,15 @@ public final class EncounterManager {
             ServerPlayerEntity player,
             ThreatDirectorConfig config,
             GovernorLimits limits) {
+        return forceStartExternal(player, config, limits, Set.of());
+    }
+
+    /** Starts a semantic API encounter while prioritizing an explicitly materialized roster. */
+    public StartResult forceStartExternal(
+            ServerPlayerEntity player,
+            ThreatDirectorConfig config,
+            GovernorLimits limits,
+            Set<UUID> requiredParticipantIds) {
         if (!limits.allowNewEncounters() || limits.vanillaOnly()) {
             return StartResult.rejected("performance governor level " + limits.level()
                     + " is not accepting new encounters; use /threatdirector performance reset "
@@ -136,7 +150,8 @@ public final class EncounterManager {
                 limits,
                 true,
                 populationBudget,
-                administrativePlanningDeadline(config));
+                administrativePlanningDeadline(config),
+                Set.copyOf(requiredParticipantIds == null ? Set.of() : requiredParticipantIds));
     }
 
     private StartResult start(
@@ -146,7 +161,8 @@ public final class EncounterManager {
             GovernorLimits limits,
             boolean forced,
             int populationPlannerBudget,
-            long populationDeadlineNanos) {
+            long populationDeadlineNanos,
+            Set<UUID> requiredParticipantIds) {
         Optional<String> rejection = eligibilityRejection(player, state, config, forced);
         if (rejection.isPresent()) {
             return StartResult.rejected(rejection.get());
@@ -214,7 +230,8 @@ public final class EncounterManager {
                 groupMobCap,
                 effectiveMinimum,
                 populationPlannerBudget,
-                populationDeadlineNanos);
+                populationDeadlineNanos,
+                requiredParticipantIds);
         if (!forced) {
             consumePlanningOperations(population.planningOperations());
         }
@@ -746,6 +763,23 @@ public final class EncounterManager {
             attributes.put("player", transition.targetPlayer().toString());
         }
         telemetry.record(TelemetryEvent.now("encounter.transition", attributes));
+        transitionListeners.forEach(listener -> {
+            try {
+                listener.accept(transition);
+            } catch (RuntimeException listenerFailure) {
+                ThreatDirectorMod.LOGGER.warn(
+                        "Encounter transition listener failed for {}",
+                        transition.encounterId(),
+                        listenerFailure);
+            }
+        });
+    }
+
+    /** Registers a public-API observer without exposing controller internals. */
+    public AutoCloseable addTransitionListener(Consumer<EncounterTransition> listener) {
+        Objects.requireNonNull(listener, "listener");
+        transitionListeners.add(listener);
+        return () -> transitionListeners.remove(listener);
     }
 
     public Optional<EncounterController> forPlayer(UUID playerId) {

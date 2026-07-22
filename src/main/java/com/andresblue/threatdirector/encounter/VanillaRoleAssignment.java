@@ -9,6 +9,7 @@ import com.andresblue.threatdirector.trait.MobProfile;
 import com.andresblue.threatdirector.trait.MobTrait;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -19,10 +20,15 @@ public final class VanillaRoleAssignment {
     private final RoleAssignmentSystem assignmentSystem = new RoleAssignmentSystem();
 
     public Map<UUID, TacticalRole> assign(List<MobProfile> profiles) {
-        List<RoleSlot> slots = slotsFor(profiles);
+        List<MobProfile> optimizationProfiles = profiles.stream()
+                .sorted(Comparator.comparing(profile -> profile.id().toString()))
+                .limit(10)
+                .toList();
+        List<RoleSlot> slots = slotsFor(optimizationProfiles);
         Map<UUID, RoleContext> contexts = new HashMap<>();
-        profiles.forEach(profile -> contexts.put(profile.id(), RoleContext.fullyReachable()));
-        RoleAssignment assignment = assignmentSystem.assign(profiles, slots, contexts);
+        optimizationProfiles.forEach(profile ->
+                contexts.put(profile.id(), RoleContext.fullyReachable()));
+        RoleAssignment assignment = assignmentSystem.assign(optimizationProfiles, slots, contexts);
 
         Map<String, TacticalRole> roleBySlot = new HashMap<>();
         slots.forEach(slot -> roleBySlot.put(slot.id(), slot.role()));

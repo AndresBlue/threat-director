@@ -28,7 +28,11 @@ public final class MobTraitRegistry {
                 "minecraft:zombie", EnumSet.of(MobTrait.MELEE, MobTrait.TANKY, MobTrait.BREACH_CAPABLE),
                 "minecraft:skeleton", EnumSet.of(MobTrait.RANGED),
                 "minecraft:spider", EnumSet.of(MobTrait.MELEE, MobTrait.FAST, MobTrait.CLIMBING),
-                "minecraft:creeper", EnumSet.of(MobTrait.EXPLOSIVE, MobTrait.STEALTHY, MobTrait.HIGH_VALUE)
+                "minecraft:creeper", EnumSet.of(MobTrait.EXPLOSIVE, MobTrait.STEALTHY, MobTrait.HIGH_VALUE),
+                "minecraft:pillager", EnumSet.of(MobTrait.RANGED),
+                "minecraft:vindicator", EnumSet.of(MobTrait.MELEE),
+                "minecraft:evoker", EnumSet.of(MobTrait.RANGED, MobTrait.SPELLCASTER, MobTrait.SUPPORT, MobTrait.HIGH_VALUE),
+                "minecraft:ravager", EnumSet.of(MobTrait.MELEE, MobTrait.TANKY, MobTrait.HIGH_VALUE)
         ), List.of());
     }
 

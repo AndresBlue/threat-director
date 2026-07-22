@@ -1,6 +1,7 @@
 package com.andresblue.threatdirector;
 
 import com.andresblue.threatdirector.command.ThreatDirectorCommands;
+import com.andresblue.threatdirector.api.v1.ThreatDirectorApiProvider;
 import com.andresblue.threatdirector.config.ConfigManager;
 import com.andresblue.threatdirector.apocalypse.ApocalypseSkeletonModule;
 import com.andresblue.threatdirector.apocalypse.other.OtherHostileApocalypseModule;
@@ -20,6 +21,7 @@ public final class ThreatDirectorMod implements ModInitializer {
     public static final String MOD_ID = "threatdirector";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
     private static final ConfigManager CONFIG_MANAGER = new ConfigManager();
+    private static final ThreatDirectorApiProvider PUBLIC_API = new ThreatDirectorApiProvider();
     private static volatile ThreatDirectorRuntime runtime;
 
     @Override
@@ -43,6 +45,7 @@ public final class ThreatDirectorMod implements ModInitializer {
                 previous.close();
             }
             runtime = new ThreatDirectorRuntime(server, CONFIG_MANAGER);
+            PUBLIC_API.bind(runtime);
         });
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             ThreatDirectorRuntime current = runtime;
@@ -53,6 +56,7 @@ public final class ThreatDirectorMod implements ModInitializer {
         ServerLivingEntityEvents.AFTER_DEATH.register((entity, damageSource) -> {
             ThreatDirectorRuntime current = runtime;
             if (current != null) {
+                PUBLIC_API.afterDeath(entity);
                 current.afterDeath(entity, damageSource);
             }
         });
@@ -60,6 +64,7 @@ public final class ThreatDirectorMod implements ModInitializer {
             ThreatDirectorRuntime current = runtime;
             if (current != null && current.server() == server) {
                 current.close();
+                PUBLIC_API.unbind(current);
                 runtime = null;
             }
         });
