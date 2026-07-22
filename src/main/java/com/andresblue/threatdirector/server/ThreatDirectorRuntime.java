@@ -42,6 +42,7 @@ public final class ThreatDirectorRuntime implements AutoCloseable {
     private final ConfigManager configManager;
     private final PlayerObservationService observations;
     private final PerformanceGovernor governor;
+    private final ThreatHudService hud = new ThreatHudService();
     private final MobOrderStore orderStore = new MobOrderStore();
     private final CompatibilityRegistry compatibility = new CompatibilityRegistry();
     private final IntegrationLoadReport integrationReport;
@@ -101,6 +102,7 @@ public final class ThreatDirectorRuntime implements AutoCloseable {
         long tick = server.getTicks();
         if (!config.enabled()) {
             int cleared = encounters.disable(config, tick);
+            hud.clear();
             if (cleared > 0) {
                 ThreatDirectorMod.LOGGER.info(
                         "Threat Director disabled by server config; released {} active encounters",
@@ -126,6 +128,9 @@ public final class ThreatDirectorRuntime implements AutoCloseable {
                 / (double) Math.max(1, config.encounter().maxActiveEncounters()));
         observations.sampleAll(server, config, planningLoad);
         encounters.tick(config, limits);
+        if (tick % 10L == 0L) {
+            refreshHud();
+        }
 
         if (tick % config.director().scanIntervalTicks() == 0L) {
             encounters.scanForEncounters(config, limits);
@@ -171,6 +176,23 @@ public final class ThreatDirectorRuntime implements AutoCloseable {
         return governor;
     }
 
+    public void refreshHud() {
+        if (configManager.current().enabled()) {
+            hud.sync(server, observations, encounters);
+        } else {
+            hud.clear();
+        }
+    }
+
+    public void setHudEnabled(ServerPlayerEntity player, boolean enabled) {
+        hud.setEnabled(player.getUuid(), enabled);
+        refreshHud();
+    }
+
+    public boolean isHudEnabled(ServerPlayerEntity player) {
+        return hud.isEnabled(player.getUuid());
+    }
+
     public CompatibilityRegistry compatibility() {
         return compatibility;
     }
@@ -197,6 +219,7 @@ public final class ThreatDirectorRuntime implements AutoCloseable {
             return;
         }
         closed = true;
+        hud.close();
         encounters.close();
         telemetry.close();
         ThreatDirectorMod.LOGGER.info("Threat Director runtime stopped");

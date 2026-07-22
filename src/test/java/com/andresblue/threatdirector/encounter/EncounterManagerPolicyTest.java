@@ -50,4 +50,16 @@ class EncounterManagerPolicyTest {
         assertFalse(state.recentlyDied(300L, 200L));
         assertFalse(state.recentlyDied(100L, 0L));
     }
+
+    @Test
+    void explicitThreatOverrideIsNeverRaisedSilentlyForForcedStarts() {
+        PlayerDirectorState state = new PlayerDirectorState(UUID.randomUUID());
+        assertEquals(55.0, EncounterManager.forcedStartIntensity(state, 45.0));
+        assertEquals(70.0, EncounterManager.forcedStartIntensity(state, 70.0));
+
+        state.setIntensityOverride(20.0);
+        assertEquals(20.0, EncounterManager.forcedStartIntensity(state, 45.0));
+        state.setIntensityOverride(90.0);
+        assertEquals(90.0, EncounterManager.forcedStartIntensity(state, 45.0));
+    }
 }

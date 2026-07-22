@@ -15,8 +15,10 @@ import com.andresblue.threatdirector.server.PlayerDirectorState;
 import com.andresblue.threatdirector.server.ThreatDirectorRuntime;
 import com.andresblue.threatdirector.tactical.BlockPoint;
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import net.minecraft.command.CommandSource;
 import net.minecraft.command.argument.EntityArgumentType;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.command.CommandManager;
@@ -34,6 +36,11 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 public final class ThreatDirectorCommands {
+    private static final String[] TEST_SCENES = {
+            "stalking", "positioning", "engaging", "searching",
+            "climax", "relief", "retreating"
+    };
+
     private ThreatDirectorCommands() {
     }
 
@@ -63,6 +70,8 @@ public final class ThreatDirectorCommands {
                                         runtime(context.getSource(), runtimeSupplier),
                                         context.getSource(),
                                         EntityArgumentType.getPlayer(context, "player")))))
+                .then(threatCommand(runtimeSupplier))
+                .then(hudCommand(runtimeSupplier))
                 .then(CommandManager.literal("start")
                         .requires(source -> source.hasPermissionLevel(2))
                         .executes(context -> start(
@@ -103,6 +112,7 @@ public final class ThreatDirectorCommands {
                                                 context.getSource(),
                                                 EntityArgumentType.getPlayer(context, "player"),
                                                 StringArgumentType.getString(context, "state"))))))
+                .then(sceneCommand(runtimeSupplier))
                 .then(CommandManager.literal("roles")
                         .executes(context -> roles(
                                 runtime(context.getSource(), runtimeSupplier),
@@ -152,6 +162,108 @@ public final class ThreatDirectorCommands {
         dispatcher.register(root);
     }
 
+    private static LiteralArgumentBuilder<ServerCommandSource> threatCommand(
+            Supplier<Optional<ThreatDirectorRuntime>> runtimeSupplier) {
+        return CommandManager.literal("threat")
+                .executes(context -> threat(
+                        runtime(context.getSource(), runtimeSupplier),
+                        context.getSource(),
+                        context.getSource().getPlayerOrThrow()))
+                .then(CommandManager.argument("player", EntityArgumentType.player())
+                        .requires(source -> source.hasPermissionLevel(2))
+                        .executes(context -> threat(
+                                runtime(context.getSource(), runtimeSupplier),
+                                context.getSource(),
+                                EntityArgumentType.getPlayer(context, "player"))))
+                .then(CommandManager.literal("set")
+                        .requires(source -> source.hasPermissionLevel(2))
+                        .then(CommandManager.argument(
+                                        "value", DoubleArgumentType.doubleArg(0.0, 100.0))
+                                .executes(context -> setThreat(
+                                        runtime(context.getSource(), runtimeSupplier),
+                                        context.getSource(),
+                                        context.getSource().getPlayerOrThrow(),
+                                        DoubleArgumentType.getDouble(context, "value")))
+                                .then(CommandManager.argument("player", EntityArgumentType.player())
+                                        .executes(context -> setThreat(
+                                                runtime(context.getSource(), runtimeSupplier),
+                                                context.getSource(),
+                                                EntityArgumentType.getPlayer(context, "player"),
+                                                DoubleArgumentType.getDouble(context, "value"))))))
+                .then(CommandManager.literal("clear")
+                        .requires(source -> source.hasPermissionLevel(2))
+                        .executes(context -> clearThreat(
+                                runtime(context.getSource(), runtimeSupplier),
+                                context.getSource(),
+                                context.getSource().getPlayerOrThrow()))
+                        .then(CommandManager.argument("player", EntityArgumentType.player())
+                                .executes(context -> clearThreat(
+                                        runtime(context.getSource(), runtimeSupplier),
+                                        context.getSource(),
+                                        EntityArgumentType.getPlayer(context, "player")))));
+    }
+
+    private static LiteralArgumentBuilder<ServerCommandSource> sceneCommand(
+            Supplier<Optional<ThreatDirectorRuntime>> runtimeSupplier) {
+        return CommandManager.literal("scene")
+                .requires(source -> source.hasPermissionLevel(2))
+                .then(CommandManager.argument("state", StringArgumentType.word())
+                        .suggests((context, builder) ->
+                                CommandSource.suggestMatching(TEST_SCENES, builder))
+                        .executes(context -> forceScene(
+                                runtime(context.getSource(), runtimeSupplier),
+                                context.getSource(),
+                                context.getSource().getPlayerOrThrow(),
+                                StringArgumentType.getString(context, "state")))
+                        .then(CommandManager.argument("player", EntityArgumentType.player())
+                                .executes(context -> forceScene(
+                                        runtime(context.getSource(), runtimeSupplier),
+                                        context.getSource(),
+                                        EntityArgumentType.getPlayer(context, "player"),
+                                        StringArgumentType.getString(context, "state")))));
+    }
+
+    private static LiteralArgumentBuilder<ServerCommandSource> hudCommand(
+            Supplier<Optional<ThreatDirectorRuntime>> runtimeSupplier) {
+        return CommandManager.literal("hud")
+                .executes(context -> hudStatus(
+                        runtime(context.getSource(), runtimeSupplier),
+                        context.getSource(),
+                        context.getSource().getPlayerOrThrow()))
+                .then(CommandManager.argument("player", EntityArgumentType.player())
+                        .requires(source -> source.hasPermissionLevel(2))
+                        .executes(context -> hudStatus(
+                                runtime(context.getSource(), runtimeSupplier),
+                                context.getSource(),
+                                EntityArgumentType.getPlayer(context, "player"))))
+                .then(CommandManager.literal("on")
+                        .executes(context -> setHud(
+                                runtime(context.getSource(), runtimeSupplier),
+                                context.getSource(),
+                                context.getSource().getPlayerOrThrow(),
+                                true))
+                        .then(CommandManager.argument("player", EntityArgumentType.player())
+                                .requires(source -> source.hasPermissionLevel(2))
+                                .executes(context -> setHud(
+                                        runtime(context.getSource(), runtimeSupplier),
+                                        context.getSource(),
+                                        EntityArgumentType.getPlayer(context, "player"),
+                                        true))))
+                .then(CommandManager.literal("off")
+                        .executes(context -> setHud(
+                                runtime(context.getSource(), runtimeSupplier),
+                                context.getSource(),
+                                context.getSource().getPlayerOrThrow(),
+                                false))
+                        .then(CommandManager.argument("player", EntityArgumentType.player())
+                                .requires(source -> source.hasPermissionLevel(2))
+                                .executes(context -> setHud(
+                                        runtime(context.getSource(), runtimeSupplier),
+                                        context.getSource(),
+                                        EntityArgumentType.getPlayer(context, "player"),
+                                        false))));
+    }
+
     private static ThreatDirectorRuntime runtime(
             ServerCommandSource source,
             Supplier<Optional<ThreatDirectorRuntime>> supplier) {
@@ -164,15 +276,24 @@ public final class ThreatDirectorCommands {
             ServerCommandSource source,
             ServerPlayerEntity player) {
         PlayerDirectorState state = runtime.observations().state(player.getUuid());
+        ThreatContext threat = threatContext(runtime, player);
         Optional<EncounterController> encounter = runtime.encounters().forPlayer(player.getUuid());
         long cooldown = Math.max(0L, state.cooldownUntilTick() - runtime.server().getTicks());
         String active = encounter.map(value -> value.state() + " / " + value.livingCount() + " mobs")
                 .orElse("ninguno");
+        String mode = threat.state().hasIntensityOverride()
+                ? String.format(Locale.ROOT, "forzada; adaptativa %.1f",
+                        threat.state().adaptiveIntensity())
+                : "adaptativa";
+        if (threat.groupThreat()) {
+            mode += "; grupo";
+        }
         return feedback(source, String.format(Locale.ROOT,
-                "%s: intensidad %.1f (%s), poder %.1f, encuentro %s, cooldown %d ticks",
+                "%s: threat %.1f (%s, %s), poder %.1f, encuentro %s, cooldown %d ticks",
                 player.getGameProfile().getName(),
-                state.intensity(),
-                state.band(),
+                threat.state().intensity(),
+                threat.state().band(),
+                mode,
                 state.powerReport() == null ? 0.0 : state.powerReport().score(),
                 active,
                 cooldown));
@@ -183,19 +304,101 @@ public final class ThreatDirectorCommands {
             ServerCommandSource source,
             ServerPlayerEntity player) {
         PlayerDirectorState state = runtime.observations().state(player.getUuid());
+        ThreatContext displayedThreat = threatContext(runtime, player);
+        String groupNote = displayedThreat.groupThreat()
+                ? String.format(Locale.ROOT,
+                        "; HUD grupal %.2f de %s",
+                        displayedThreat.state().intensity(), displayedThreat.ownerName())
+                : "";
         if (state.breakdown() == null || state.powerReport() == null) {
-            return feedback(source, "Todavía no existe una muestra de intensidad para ese jugador.");
+            return feedback(source, String.format(Locale.ROOT,
+                    "Intensidad individual %.2f%s%s; todavía no existe una muestra adaptativa para ese jugador.",
+                    state.intensity(),
+                    state.hasIntensityOverride() ? " (FORZADO)" : "",
+                    groupNote));
         }
         return feedback(source, String.format(Locale.ROOT,
-                "Intensidad %.2f (objetivo %.2f): poder %.2f, entorno %.2f, preparación %.2f, dominio %.2f, estrés %.2f, carga %.2f",
+                "Intensidad individual %.2f%s, adaptativa %.2f (objetivo %.2f): poder %.2f, entorno %.2f, preparación %.2f, dominio %.2f, estrés %.2f, carga %.2f%s",
                 state.intensity(),
+                state.hasIntensityOverride() ? " (FORZADO)" : "",
+                state.adaptiveIntensity(),
                 state.breakdown().targetIntensity(),
                 state.powerReport().score(),
                 state.breakdown().environment(),
                 state.breakdown().readiness(),
                 state.breakdown().dominance(),
                 state.breakdown().distress(),
-                state.breakdown().load()));
+                state.breakdown().load(),
+                groupNote));
+    }
+
+    private static int threat(
+            ThreatDirectorRuntime runtime,
+            ServerCommandSource source,
+            ServerPlayerEntity player) {
+        ThreatContext threat = threatContext(runtime, player);
+        PlayerDirectorState state = threat.state();
+        return feedback(source, String.format(Locale.ROOT,
+                "%s: threat %.1f/100, nivel %s, modo %s%s",
+                player.getGameProfile().getName(),
+                state.intensity(),
+                state.band(),
+                state.hasIntensityOverride()
+                        ? String.format(Locale.ROOT, "FORZADO (adaptativo %.1f)", state.adaptiveIntensity())
+                        : "adaptativo",
+                threat.groupThreat() ? "; compartido con " + threat.ownerName() : ""));
+    }
+
+    private static int setThreat(
+            ThreatDirectorRuntime runtime,
+            ServerCommandSource source,
+            ServerPlayerEntity player,
+            double value) {
+        if (!Double.isFinite(value) || value < 0.0 || value > 100.0) {
+            return error(source, "El threat debe ser un número finito entre 0 y 100.");
+        }
+        ThreatContext threat = threatContext(runtime, player);
+        PlayerDirectorState state = threat.state();
+        state.setIntensityOverride(value);
+        runtime.refreshHud();
+        return feedback(source, String.format(Locale.ROOT,
+                "Threat de %s forzado a %.1f/100 (%s). Usa /threatdirector threat clear para restaurar el cálculo adaptativo.",
+                threat.ownerName(),
+                value,
+                state.band()));
+    }
+
+    private static int clearThreat(
+            ThreatDirectorRuntime runtime,
+            ServerCommandSource source,
+            ServerPlayerEntity player) {
+        ThreatContext threat = threatContext(runtime, player);
+        PlayerDirectorState state = threat.state();
+        boolean cleared = state.clearIntensityOverride();
+        runtime.refreshHud();
+        return feedback(source, cleared
+                ? String.format(Locale.ROOT,
+                        "Override de %s eliminado; threat adaptativo actual %.1f/100.",
+                        threat.ownerName(), state.intensity())
+                : threat.ownerName() + " ya utilizaba threat adaptativo.");
+    }
+
+    private static int hudStatus(
+            ThreatDirectorRuntime runtime,
+            ServerCommandSource source,
+            ServerPlayerEntity player) {
+        return feedback(source, "HUD de threat para " + player.getGameProfile().getName() + ": "
+                + (runtime.isHudEnabled(player) ? "activado" : "oculto"));
+    }
+
+    private static int setHud(
+            ThreatDirectorRuntime runtime,
+            ServerCommandSource source,
+            ServerPlayerEntity player,
+            boolean enabled) {
+        runtime.setHudEnabled(player, enabled);
+        return feedback(source, "HUD de threat " + (enabled ? "activado" : "oculto")
+                + " para " + player.getGameProfile().getName() + ".");
     }
 
     private static int start(
@@ -242,9 +445,93 @@ public final class ThreatDirectorCommands {
         return controller.forceState(
                 state,
                 runtime.server().getTicks(),
-                runtime.observations().state(player.getUuid()).intensity())
+                runtime.observations().state(controller.targetPlayerId()).intensity())
                 ? feedback(source, "Fase forzada a " + state)
                 : error(source, "No se pudo cambiar la fase.");
+    }
+
+    private static int forceScene(
+            ThreatDirectorRuntime runtime,
+            ServerCommandSource source,
+            ServerPlayerEntity player,
+            String rawState) {
+        EncounterState requested = testScene(rawState);
+        if (requested == null) {
+            return error(source, "Escena desconocida: " + rawState
+                    + ". Opciones: " + String.join(", ", TEST_SCENES));
+        }
+
+        boolean startedNow = false;
+        EncounterController controller = runtime.encounters().forPlayer(player.getUuid()).orElse(null);
+        if (controller == null) {
+            EncounterManager.StartResult result = runtime.encounters().forceStart(
+                    player, runtime.config(), runtime.governor().limits());
+            if (!result.started()) {
+                return error(source, "No se pudo preparar la escena: " + result.reason());
+            }
+            startedNow = true;
+            controller = runtime.encounters().forPlayer(player.getUuid()).orElse(null);
+            if (controller == null) {
+                return error(source, "El encuentro se inició pero su controlador no está disponible.");
+            }
+        }
+
+        PlayerDirectorState encounterState = runtime.observations().state(controller.targetPlayerId());
+        boolean changed = controller.forceSceneState(
+                requested,
+                runtime.server().getTicks(),
+                encounterState.intensity());
+        if (!changed) {
+            return error(source, "No se pudo forzar la escena " + requested + ".");
+        }
+        runtime.refreshHud();
+
+        return feedback(source, String.format(Locale.ROOT,
+                "Escena %s forzada para %s%s: threat %.1f, %d mobs, budget %d.",
+                requested,
+                player.getGameProfile().getName(),
+                startedNow ? " (encuentro creado)" : "",
+                encounterState.intensity(),
+                controller.livingCount(),
+                controller.budget().total()));
+    }
+
+    private static EncounterState testScene(String rawState) {
+        if (rawState == null) {
+            return null;
+        }
+        return switch (rawState.toLowerCase(Locale.ROOT)) {
+            case "stalking" -> EncounterState.STALKING;
+            case "positioning" -> EncounterState.POSITIONING;
+            case "engaging" -> EncounterState.ENGAGING;
+            case "searching" -> EncounterState.SEARCHING;
+            case "climax" -> EncounterState.CLIMAX;
+            case "relief" -> EncounterState.RELIEF;
+            case "retreating" -> EncounterState.RETREATING;
+            default -> null;
+        };
+    }
+
+    private static ThreatContext threatContext(
+            ThreatDirectorRuntime runtime, ServerPlayerEntity requestedPlayer) {
+        EncounterController encounter = runtime.encounters()
+                .forPlayer(requestedPlayer.getUuid())
+                .orElse(null);
+        if (encounter == null || encounter.targetPlayerId().equals(requestedPlayer.getUuid())) {
+            return new ThreatContext(
+                    runtime.observations().state(requestedPlayer.getUuid()),
+                    requestedPlayer.getGameProfile().getName(),
+                    false);
+        }
+        ServerPlayerEntity primary = runtime.server().getPlayerManager()
+                .getPlayer(encounter.targetPlayerId());
+        String ownerName = primary == null
+                ? encounter.targetPlayerId().toString()
+                : primary.getGameProfile().getName();
+        return new ThreatContext(
+                runtime.observations().state(encounter.targetPlayerId()),
+                ownerName,
+                true);
     }
 
     private static int roles(
@@ -389,5 +676,9 @@ public final class ThreatDirectorCommands {
     private static int error(ServerCommandSource source, String message) {
         source.sendError(Text.literal(message));
         return 0;
+    }
+
+    private record ThreatContext(
+            PlayerDirectorState state, String ownerName, boolean groupThreat) {
     }
 }

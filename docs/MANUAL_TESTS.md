@@ -69,6 +69,37 @@ Esperado: las tres condiciones se reportan y el JSON anterior continúa activo.
 
 ## Adventure Intensity
 
+### HUD-01 — barra adaptativa
+
+Entrar con dos jugadores equipados de forma diferente.
+
+Esperado: cada cliente ve una barra propia de diez segmentos; porcentaje, texto y color reflejan su
+threat individual y no el del otro jugador. Al entrar ambos en el mismo encuentro, el secundario
+muestra el threat compartido del encuentro con la marca `GRUPO`.
+
+### HUD-02 — override OP
+
+Ejecutar `/threatdirector threat set 90`, observar la barra y luego ejecutar
+`/threatdirector threat clear`.
+
+Esperado: cambia inmediatamente a `THREAT 90% · EXTREMO · FORZADO`; al limpiar desaparece la marca y
+regresa al último cálculo adaptativo, que continuó actualizándose en segundo plano.
+
+### HUD-03 — lifecycle
+
+Desconectarse, reconectar, morir/respawnear y desactivar el mod desde configuración.
+
+Esperado: no se duplican barras; el respawn conserva una sola barra y al desactivar el runtime se
+retira del HUD.
+
+### HUD-04 — preferencia personal
+
+Ejecutar `/threatdirector hud off` y `/threatdirector hud on` sin permisos OP. Después, como OP,
+repetir ambos comandos indicando otro jugador.
+
+Esperado: cada jugador puede ocultar o recuperar su barra; modificar la preferencia ajena requiere
+nivel de permiso 2 y no altera el cálculo de threat.
+
 ### INT-01 — jugador débil
 
 Jugador sin armadura, espada de madera, salud completa y sin consumibles durante la noche.
@@ -102,6 +133,14 @@ Esperado: la presión efectiva disminuye o el encuentro aborta conforme a config
 un salto instantáneo a máxima intensidad.
 
 ## Formación y justicia del encuentro
+
+### ENC-00 — comando de escena
+
+Como OP fuera del spawn protegido, ejecutar `/threatdirector threat set 90` y después
+`/threatdirector scene engaging` sin un encuentro previo.
+
+Esperado: se forma una población mediante las reglas seguras normales, se crea el encuentro y entra
+en Engaging. El feedback informa threat, mobs y budget. Repetir con las demás escenas admitidas.
 
 ### ENC-01 — cacería nocturna reproducible
 

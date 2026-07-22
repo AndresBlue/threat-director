@@ -166,10 +166,7 @@ public final class AdventureIntensityCalculator {
         }
 
         private static IntensityBand upwardBand(double intensity) {
-            if (intensity >= 85.0) return IntensityBand.EXTREME;
-            if (intensity >= 65.0) return IntensityBand.HIGH;
-            if (intensity >= 40.0) return IntensityBand.TACTICAL;
-            return IntensityBand.LOW;
+            return IntensityBand.fromIntensity(intensity);
         }
 
         private static IntensityBand downwardBand(

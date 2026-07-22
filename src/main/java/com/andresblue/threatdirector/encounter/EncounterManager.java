@@ -131,7 +131,7 @@ public final class EncounterManager {
         }
 
         double intensity = forced
-                ? Math.max(config.director().minimumIntensity(), Math.max(55.0, state.intensity()))
+                ? forcedStartIntensity(state, config.director().minimumIntensity())
                 : state.intensity();
         int nearbySurvivalPlayers = nearbySurvivalPlayerCount(player, config);
         double groupMultiplier = ThreatBudget.diminishingGroupMultiplier(
@@ -446,6 +446,12 @@ public final class EncounterManager {
         return state.powerReport() == null ? Double.NEGATIVE_INFINITY : state.powerReport().score();
     }
 
+    static double forcedStartIntensity(PlayerDirectorState state, double minimumIntensity) {
+        return state.hasIntensityOverride()
+                ? state.intensity()
+                : Math.max(minimumIntensity, Math.max(55.0, state.intensity()));
+    }
+
     static boolean meetsMinimumHealth(
             double currentHealth, double maximumHealth, double minimumRatio) {
         if (!Double.isFinite(currentHealth)
@@ -518,7 +524,18 @@ public final class EncounterManager {
 
     public Optional<EncounterController> forPlayer(UUID playerId) {
         UUID encounterId = encounterByPlayer.get(playerId);
-        return Optional.ofNullable(encounterId == null ? null : encounters.get(encounterId));
+        EncounterController direct = encounterId == null ? null : encounters.get(encounterId);
+        if (direct != null) {
+            return Optional.of(direct);
+        }
+        ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
+        if (player == null) {
+            return Optional.empty();
+        }
+        return encounters.values().stream()
+                .sorted((first, second) -> first.encounterId().compareTo(second.encounterId()))
+                .filter(controller -> controller.includesPlayer(player))
+                .findFirst();
     }
 
     public Optional<EncounterController> byId(UUID encounterId) {
@@ -534,7 +551,7 @@ public final class EncounterManager {
         if (controller == null) {
             return false;
         }
-        controller.cancel(tick, observations.state(playerId).intensity());
+        controller.cancel(tick, observations.state(controller.targetPlayerId()).intensity());
         return true;
     }
 

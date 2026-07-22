@@ -801,7 +801,25 @@ public final class EncounterController {
     }
 
     public boolean forceState(EncounterState state, long tick, double intensity) {
-        if (finished || state == null || state == runtime.state()
+        return applyForcedState(state, tick, intensity, false);
+    }
+
+    /** Administrative scene control; unlike forceState, re-entering a phase restarts its timer. */
+    public boolean forceSceneState(EncounterState state, long tick, double intensity) {
+        boolean changed = applyForcedState(state, tick, intensity, true);
+        if (changed && (state == EncounterState.RELIEF || state == EncounterState.RETREATING)) {
+            List<MobEntity> living = livingMobs();
+            for (MobEntity mob : living) {
+                mob.setTarget(null);
+            }
+            executeRelief(target(), living, tick);
+        }
+        return changed;
+    }
+
+    private boolean applyForcedState(
+            EncounterState state, long tick, double intensity, boolean allowRestart) {
+        if (finished || state == null || (!allowRestart && state == runtime.state())
                 || state == EncounterState.DORMANT
                 || state == EncounterState.COOLDOWN
                 || state == EncounterState.ABORTED) {
@@ -1061,6 +1079,20 @@ public final class EncounterController {
 
     public UUID targetPlayerId() {
         return targetPlayerId;
+    }
+
+    public boolean includesPlayer(ServerPlayerEntity player) {
+        if (player == null || player.getServerWorld() != world) {
+            return false;
+        }
+        if (player.getUuid().equals(targetPlayerId)) {
+            return true;
+        }
+        ServerPlayerEntity primary = target();
+        return primary != null
+                && player.squaredDistanceTo(primary)
+                        <= square(config.multiplayer().groupRadius())
+                && combatTargetEligibility.test(player);
     }
 
     public EncounterState state() {

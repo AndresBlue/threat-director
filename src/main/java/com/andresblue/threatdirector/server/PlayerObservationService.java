@@ -114,7 +114,7 @@ public final class PlayerObservationService {
                 outsideSafeArea,
                 sinceEncounter,
                 sinceCombat,
-                state.intensity(),
+                state.adaptiveIntensity(),
                 state.killsWithin(tick, recentWindow),
                 state.damageWithin(tick, recentWindow),
                 state.lastCombatTick() == Long.MIN_VALUE ? 0.0 : 1.0,
@@ -137,7 +137,7 @@ public final class PlayerObservationService {
         double smoothed = state.lastSampleTick() < 0
                 ? breakdown.targetIntensity()
                 : AdventureIntensityCalculator.smooth(
-                        state.intensity(),
+                        state.adaptiveIntensity(),
                         breakdown.targetIntensity(),
                         elapsedTicks,
                         config.intensity().sampleIntervalTicks(),

@@ -7,6 +7,7 @@ import com.andresblue.threatdirector.power.PowerReport;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.OptionalDouble;
 import java.util.UUID;
 
 public final class PlayerDirectorState {
@@ -18,7 +19,8 @@ public final class PlayerDirectorState {
 
     private PowerReport powerReport;
     private AdventureIntensityBreakdown breakdown;
-    private double intensity;
+    private double adaptiveIntensity;
+    private double intensityOverride = Double.NaN;
     private double previousEffectiveHealth = -1.0;
     private long lastSampleTick = -1L;
     private long lastCombatTick = Long.MIN_VALUE;
@@ -66,7 +68,7 @@ public final class PlayerDirectorState {
             double hysteresisPoints) {
         this.powerReport = powerReport;
         this.breakdown = breakdown;
-        this.intensity = newIntensity;
+        this.adaptiveIntensity = newIntensity;
         this.lastSampleTick = sampleTick;
         hysteresis.update(newIntensity, breakdown.distress(), elapsedTicks, hysteresisPoints);
     }
@@ -106,11 +108,40 @@ public final class PlayerDirectorState {
     }
 
     public double intensity() {
-        return intensity;
+        return hasIntensityOverride() ? intensityOverride : adaptiveIntensity;
+    }
+
+    public double adaptiveIntensity() {
+        return adaptiveIntensity;
+    }
+
+    public OptionalDouble intensityOverride() {
+        return hasIntensityOverride()
+                ? OptionalDouble.of(intensityOverride)
+                : OptionalDouble.empty();
+    }
+
+    public boolean hasIntensityOverride() {
+        return Double.isFinite(intensityOverride);
+    }
+
+    public void setIntensityOverride(double value) {
+        if (!Double.isFinite(value) || value < 0.0 || value > 100.0) {
+            throw new IllegalArgumentException("Threat override must be between 0 and 100");
+        }
+        intensityOverride = value;
+    }
+
+    public boolean clearIntensityOverride() {
+        boolean cleared = hasIntensityOverride();
+        intensityOverride = Double.NaN;
+        return cleared;
     }
 
     public IntensityBand band() {
-        return hysteresis.band();
+        return hasIntensityOverride()
+                ? IntensityBand.fromIntensity(intensityOverride)
+                : hysteresis.band();
     }
 
     public long lastSampleTick() {

@@ -36,8 +36,10 @@ vuelo, combate acuático, overlay cliente, PvPvE ni reconocimiento avanzado de e
 Fabric lifecycle/events
         ↓
 ThreatDirectorRuntime
+        ↓                       ↓
+PlayerObservationService ── ThreatHudService ── ServerBossBar vanilla
         ↓
-PlayerObservationService ── PerformanceGovernor
+PerformanceGovernor
         ↓
 EncounterManager ── EncounterController
         ↓
@@ -56,7 +58,7 @@ mediante interfaces; no conocen el runtime que los consume.
 ### Runtime
 
 `ThreatDirectorRuntime` existe una vez por `MinecraftServer`. Posee la configuración activa, las
-observaciones, el gobernador, los encuentros y la telemetría. Se crea en
+observaciones, el HUD, el gobernador, los encuentros y la telemetría. Se crea en
 `SERVER_STARTED` y se cierra en `SERVER_STOPPING`; no debe sobrevivir como singleton a un segundo
 servidor integrado.
 
@@ -85,6 +87,16 @@ una caché invalidada por eventos de equipo es una optimización posterior.
 encuentros activos vive en `EncounterManager`. Los cooldowns usan ticks del servidor, no hora del
 sistema ni hora del día. El estado desconectado se conserva durante una ventana acotada para evitar
 que una reconexión elimine inmediatamente sus salvaguardas.
+
+Un override administrativo vive separado de la intensidad adaptativa. `intensity()` expone el valor
+efectivo al director y al HUD, mientras el muestreo continúa actualizando `adaptiveIntensity()`; al
+limpiar el override no hay que reconstruir ni falsear el historial observado.
+
+`ThreatHudService` mantiene un `ServerBossBar` individual por UUID no espectador. Reconcilia join,
+disconnect y respawn desde el hilo del servidor, y elimina todas las barras al desactivar o cerrar el
+runtime. Fuera de combate muestra la intensidad individual; los participantes secundarios de un
+encuentro muestran la intensidad efectiva del objetivo primario con la marca `GRUPO`. El cliente
+recibe paquetes bossbar vanilla: no existe entrypoint gráfico ni protocolo personalizado.
 
 ### Encuentros
 

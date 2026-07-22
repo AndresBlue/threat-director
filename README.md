@@ -32,6 +32,7 @@ dependencias obligatorias.
 - BreachPlanner exclusivamente simulado: no existe ninguna llamada de rotura de bloques.
 - API transaccional para adapters opcionales y claims con fallo cerrado.
 - Telemetría NDJSON local, acotada y desactivada por defecto.
+- Barra HUD vanilla personalizada por jugador, sin paquetes personalizados ni mod cliente adicional.
 
 Los creepers creados por el director están desactivados por defecto. Los creepers naturales tampoco
 se reclutan mientras `mobGriefing` permita dañar bloques, salvo activación explícita del mismo
@@ -44,9 +45,14 @@ Las mutaciones requieren nivel de permiso 2.
 ```text
 /threatdirector status [player]
 /threatdirector intensity [player]
+/threatdirector threat [player]
+/threatdirector threat set <0..100> [player]
+/threatdirector threat clear [player]
+/threatdirector hud [on|off] [player]
 /threatdirector start [player]
 /threatdirector cancel [player|all]
 /threatdirector phase <state> [player]
+/threatdirector scene <state> [player]
 /threatdirector roles
 /threatdirector sectors
 /threatdirector budget
@@ -57,6 +63,36 @@ Las mutaciones requieren nivel de permiso 2.
 /threatdirector preset
 /threatdirector telemetry
 ```
+
+`threat set` mantiene un override hasta ejecutar `threat clear`; el cálculo adaptativo continúa en
+segundo plano. `scene` crea un encuentro seguro si hace falta y fuerza una de estas escenas:
+`stalking`, `positioning`, `engaging`, `searching`, `climax`, `relief` o `retreating`.
+`intensity` conserva el diagnóstico adaptativo individual; `threat` coincide con el valor efectivo
+del HUD y, durante un encuentro grupal, con la intensidad compartida.
+
+Ejemplo rápido para OP:
+
+```text
+/threatdirector threat set 90
+/threatdirector scene engaging
+/threatdirector scene climax
+/threatdirector threat clear
+```
+
+Los comandos de prueba siguen respetando Peaceful, salud mínima, muerte reciente, spawn protegido,
+chunks cargados, hard caps y el gobernador de rendimiento.
+Un override explícito también se usa para calcular la población: valores inferiores a los necesarios
+para formar el mínimo configurado rechazan la escena con una causa clara, en vez de elevarse en silencio.
+
+## HUD de amenaza
+
+Cada jugador conectado que no esté en modo espectador recibe una barra segmentada de diez partes con
+su threat efectivo de `0–100`. Cambia de verde a amarillo, rojo y púrpura para los niveles bajo,
+táctico, alto y extremo. Un valor administrativo añade `FORZADO` al título. Durante un encuentro
+multijugador, todos los participantes ven la intensidad compartida y los secundarios reciben la
+marca `GRUPO`. La barra usa `ServerBossBar`, por lo que funciona con el HUD vanilla y no requiere una
+implementación gráfica en el cliente. Está visible por defecto y cada jugador puede ocultarla con
+`/threatdirector hud off`; solo un OP puede cambiar la preferencia de otro jugador.
 
 La rotura real, adapters de Prominence II, claims concretos, élites y el resto de patrones quedan
 para fases posteriores. El núcleo actual ya funciona sin ninguno de ellos.
