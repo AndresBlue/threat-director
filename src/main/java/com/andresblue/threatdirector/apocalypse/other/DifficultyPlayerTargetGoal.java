@@ -50,6 +50,11 @@ final class DifficultyPlayerTargetGoal extends ActiveTargetGoal<PlayerEntity> {
 
     @Override
     protected double getFollowRange() {
+        // ActiveTargetGoal's constructor invokes this virtual method before this subclass's
+        // fields have been assigned. Fall back to vanilla during that construction window.
+        if (profile == null) {
+            return super.getFollowRange();
+        }
         return Math.max(super.getFollowRange(), profile.minimumTargetRange());
     }
 
