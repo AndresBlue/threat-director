@@ -33,7 +33,7 @@ import java.util.Set;
 import java.util.UUID;
 
 public final class EncounterManager {
-    private static final long ADMINISTRATIVE_MIN_WORK_BUDGET_MICROS = 25_000L;
+    private static final long ADMINISTRATIVE_MIN_WORK_BUDGET_MICROS = 250_000L;
 
     private final MinecraftServer server;
     private final PlayerObservationService observations;
@@ -74,6 +74,12 @@ public final class EncounterManager {
         for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
             if (encounters.size() >= controllerCap) {
                 break;
+            }
+            // In an integrated/LAN world the machine running the mod owns the director.
+            // Remote vanilla clients may participate in the host's group, but never become an
+            // independent automatic pressure anchor merely by joining the shared world.
+            if (server.isSingleplayer() && !isIntegratedHost(player)) {
+                continue;
             }
             PlayerDirectorState state = observations.state(player.getUuid());
             Optional<String> rejection = eligibilityRejection(player, state, config, false);
@@ -167,7 +173,9 @@ public final class EncounterManager {
         double reinforcementReserveFactor = pressure.reinforcementSize() <= 0
                 ? 0.0
                 : Math.min(1.0,
-                        pressure.reinforcementSize() * 4.0 / Math.max(1, pressure.mobCap()));
+                        pressure.reinforcementSize()
+                                * (double) pressure.maximumReinforcementWaves()
+                                / Math.max(1, pressure.mobCap()));
         ThreatBudget budget = ThreatBudget.forIntensity(
                 intensity,
                 groupMobCap,
@@ -377,7 +385,10 @@ public final class EncounterManager {
         EncounterPressure pressure = EncounterPressure.calculate(config, state, target);
         if (pressure.reinforcementSize() <= 0
                 || !controller.canReinforce(
-                        tick, pressure.reinforcementIntervalTicks(), 4, 2)) {
+                        tick,
+                        pressure.reinforcementIntervalTicks(),
+                        pressure.maximumReinforcementWaves(),
+                        2)) {
             return 0;
         }
 

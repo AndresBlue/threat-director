@@ -31,7 +31,7 @@ class ConfigManagerTest {
         assertSame(loaded, manager.current());
         assertEquals(Preset.VANILLA_PLUS, loaded.preset());
         String json = Files.readString(manager.configFile(), StandardCharsets.UTF_8);
-        assertTrue(json.contains("\"schemaVersion\": 2"));
+        assertTrue(json.contains("\"schemaVersion\": 3"));
         assertTrue(json.contains("\"preset\": \"VANILLA_PLUS\""));
         assertTrue(json.contains("\"simulationOnly\": true"));
     }
@@ -83,10 +83,27 @@ class ConfigManagerTest {
     }
 
     @Test
-    void exactLegacyDefaultsMigrateToAggressiveV2DefaultsAndRewriteFile() throws Exception {
+    void exactV1DefaultsMigrateToApocalypseV3DefaultsAndRewriteFile() throws Exception {
         ConfigManager manager = new ConfigManager(temporaryDirectory);
         ThreatDirectorConfig legacy = ThreatDirectorConfig.legacyVanillaPlusV1();
         assertLegacyFingerprint(legacy);
+        Files.writeString(
+                manager.configFile(), GSON.toJson(legacy), StandardCharsets.UTF_8);
+
+        ThreatDirectorConfig loaded = manager.load();
+
+        assertEquals(ThreatDirectorConfig.vanillaPlus(), loaded);
+        ThreatDirectorConfig persisted = GSON.fromJson(
+                Files.readString(manager.configFile(), StandardCharsets.UTF_8),
+                ThreatDirectorConfig.class);
+        assertEquals(loaded, persisted);
+    }
+
+    @Test
+    void exactV2DefaultsMigrateToApocalypseV3DefaultsAndRewriteFile() throws Exception {
+        ConfigManager manager = new ConfigManager(temporaryDirectory);
+        ThreatDirectorConfig legacy = ThreatDirectorConfig.legacyVanillaPlusV2();
+        assertLegacyV2Fingerprint(legacy);
         Files.writeString(
                 manager.configFile(), GSON.toJson(legacy), StandardCharsets.UTF_8);
 
@@ -126,6 +143,29 @@ class ConfigManagerTest {
         assertEquals(expected, persisted);
     }
 
+    @Test
+    void customizedV2FileAlsoPreservesEveryValueExceptSchemaVersion() throws Exception {
+        ConfigManager manager = new ConfigManager(temporaryDirectory);
+        JsonObject customizedJson = GSON.toJsonTree(
+                ThreatDirectorConfig.legacyVanillaPlusV2()).getAsJsonObject();
+        customizedJson.getAsJsonObject("encounter").addProperty("hardMaxMobs", 15);
+        customizedJson.getAsJsonObject("performance")
+                .addProperty("workBudgetMicrosPerTick", 4_250);
+        ThreatDirectorConfig customizedV2 = GSON.fromJson(
+                customizedJson, ThreatDirectorConfig.class);
+        Files.writeString(
+                manager.configFile(), GSON.toJson(customizedV2), StandardCharsets.UTF_8);
+
+        ThreatDirectorConfig loaded = manager.load();
+
+        ThreatDirectorConfig expected = withCurrentSchema(customizedV2);
+        assertEquals(expected, loaded);
+        ThreatDirectorConfig persisted = GSON.fromJson(
+                Files.readString(manager.configFile(), StandardCharsets.UTF_8),
+                ThreatDirectorConfig.class);
+        assertEquals(expected, persisted);
+    }
+
     private static void assertLegacyFingerprint(ThreatDirectorConfig legacy) {
         assertEquals(1, legacy.schemaVersion());
         assertEquals(100, legacy.director().scanIntervalTicks());
@@ -143,6 +183,25 @@ class ConfigManagerTest {
         assertEquals(4, legacy.performance().maxPlannerOperationsPerTick());
         assertEquals(35.0, legacy.performance().level1TickTimeMs());
         assertEquals(80.0, legacy.performance().level6TickTimeMs());
+    }
+
+    private static void assertLegacyV2Fingerprint(ThreatDirectorConfig legacy) {
+        assertEquals(2, legacy.schemaVersion());
+        assertEquals(60, legacy.director().scanIntervalTicks());
+        assertEquals(0.04, legacy.director().encounterChancePerScan());
+        assertEquals(3_600, legacy.director().cooldownMinTicks());
+        assertEquals(7_200, legacy.director().cooldownMaxTicks());
+        assertEquals(8, legacy.encounter().maxMobs());
+        assertEquals(12, legacy.encounter().hardMaxMobs());
+        assertEquals(24, legacy.encounter().maxNearbyHostiles());
+        assertEquals(32, legacy.tactical().maxCandidatesPerSnapshot());
+        assertEquals(4, legacy.tactical().maxPathAttemptsPerMob());
+        assertEquals(30, legacy.tactical().replanIntervalTicks());
+        assertEquals(3, legacy.tactical().maxSimultaneousMeleeAttackers());
+        assertEquals(3_500, legacy.performance().workBudgetMicrosPerTick());
+        assertEquals(48, legacy.performance().maxPlannerOperationsPerTick());
+        assertEquals(40.0, legacy.performance().level1TickTimeMs());
+        assertEquals(100.0, legacy.performance().level6TickTimeMs());
     }
 
     private static ThreatDirectorConfig withCurrentSchema(ThreatDirectorConfig config) {

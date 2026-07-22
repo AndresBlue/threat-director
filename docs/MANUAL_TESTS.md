@@ -2,13 +2,13 @@
 
 ## Alcance del documento
 
-Esta matriz define la aceptación manual del MVP vanilla ya implementado. Configuración, runtime,
-comandos y controlador están conectados; los casos de Prominence II y adapters concretos se marcan
+Esta matriz define la aceptación manual de Threat Director 0.3.0. Configuración, runtime, comandos,
+habilidades y controlador están conectados; los casos de Prominence II y adapters concretos se marcan
 explícitamente como fases posteriores.
 
 ## Preparación
 
-1. Ejecutar `gradlew.bat clean build`.
+1. Ejecutar `gradlew.bat clean build` y comprobar `build/libs/threat-director-0.3.0.jar`.
 2. Iniciar una instancia Fabric 1.20.1 con solo Fabric API y Threat Director en el lado servidor.
    Preparar además un cliente remoto 1.20.1 sin Threat Director para los casos LAN/dedicado.
 3. Crear un mundo de pruebas en dificultad Normal, cheats activos y clima despejado.
@@ -27,9 +27,10 @@ entidades ni validación de posiciones.
 1. Eliminar únicamente `config/threatdirector.json` con el juego detenido.
 2. Iniciar el servidor.
 
-Esperado: se crea JSON UTF-8 legible con schema 2 y preset `VANILLA_PLUS`; el servidor continúa sin
-errores. Entre los defaults figuran `maxMobs=8`, `hardMaxMobs=12`, 32 candidatos, cuatro intentos de
-path por mob, replan base de 30 ticks y 48 operaciones globales de planner por tick.
+Esperado: se crea JSON UTF-8 legible con schema 3 y preset `VANILLA_PLUS`; el servidor continúa sin
+errores. Entre los defaults figuran `minMobs=4`, `maxMobs=32`, `hardMaxMobs=96`,
+`maxNearbyHostiles=160`, 64 candidatos, cinco intentos de path por mob, replan base de 20 ticks y
+192 operaciones/20 000 microsegundos globales de planner por tick.
 
 ### CFG-02 — JSON malformado
 
@@ -42,13 +43,13 @@ continúa usando la última configuración válida.
 
 ### CFG-03 — valores incoherentes
 
-Establecer `minMobs: 9`, `maxMobs: 8`, invertir las distancias de spawn y hacer que un batch de
-telemetría exceda la cola.
+Establecer `minMobs: 33`, `maxMobs: 32`, `hardMaxMobs: 129`, invertir las distancias de spawn y hacer
+que un batch de telemetría exceda la cola.
 
 Esperado: un solo error informa todas las infracciones relevantes y no activa parcialmente ninguna
 sección.
 
-### CFG-04 — límites destructivos del MVP
+### CFG-04 — invariantes destructivas
 
 Cambiar `breachSimulation.simulationOnly` a `false` y habilitar adapters externos bajo
 `VANILLA_PLUS`.
@@ -58,7 +59,7 @@ ninguna clase externa.
 
 ### CFG-05 — reload válido
 
-1. Reducir `encounter.maxMobs` de 8 a 7 manteniendo `minMobs <= maxMobs <= hardMaxMobs`.
+1. Reducir `encounter.maxMobs` de 32 a 31 manteniendo `minMobs <= maxMobs <= hardMaxMobs`.
 2. Recargar durante un encuentro activo.
 
 Esperado: la nueva configuración se publica completa, sin estado parcial ni error. El controlador
@@ -72,23 +73,23 @@ Introducir una dimensión con mayúsculas, duplicar otra y agregar un mob permit
 
 Esperado: las tres condiciones se reportan y el JSON anterior continúa activo.
 
-### CFG-07 — migración del preset v1 intacto
+### CFG-07 — migración de presets v1/v2 intactos
 
 1. Con el servidor detenido, reemplazar el archivo por el JSON exacto generado por el preset
-   `VANILLA_PLUS` schema 1 de la versión anterior.
-2. Iniciar el servidor y volver a leer el archivo.
+   `VANILLA_PLUS` schema 1 legado.
+2. Iniciar el servidor, verificar la migración, detenerlo y repetir con el preset schema 2 intacto.
 
-Esperado: se migra y reescribe atómicamente como schema 2 con todos los defaults nuevos, incluidos
-8/12 mobs, 32 candidatos, cuatro paths, replan 30 y 48 operaciones. No queda archivo temporal ni se
-requiere editarlo a mano.
+Esperado: ambos se migran y reescriben atómicamente como schema 3 con todos los defaults nuevos,
+incluidos 32/96 mobs, nearby cap 160, 64 candidatos, cinco paths, replan 20 y 192 operaciones. No
+queda archivo temporal ni se requiere editarlo a mano.
 
 ### CFG-08 — migración v1 personalizada y schema desconocido
 
-1. Partir del JSON schema 1 anterior, cambiar valores válidos distintivos —por ejemplo
+1. Partir de un JSON schema 1 o 2, cambiar valores válidos distintivos —por ejemplo
    `maxMobs=5`, `hardMaxMobs=7` y una probabilidad personalizada— y arrancar.
 2. Confirmar la reescritura, cambiar `schemaVersion` a 99 con el servidor activo y ejecutar reload.
 
-Esperado: en el primer arranque solo cambia a schema 2 y los valores personalizados se preservan.
+Esperado: en el primer arranque solo cambia a schema 3 y los valores personalizados se preservan.
 El schema 99 se rechaza, no se reescribe y la última configuración válida en memoria continúa
 activa.
 
@@ -96,15 +97,15 @@ activa.
 
 ### HUD-01 — barra adaptativa
 
-Entrar con dos jugadores equipados de forma diferente.
+Entrar con dos jugadores equipados de forma diferente, uno OP2 y otro sin permisos.
 
-Esperado: cada cliente ve una barra propia de diez segmentos; porcentaje, texto y color reflejan su
-threat individual y no el del otro jugador. Al entrar ambos en el mismo encuentro, el secundario
-muestra el threat compartido del encuentro con la marca `GRUPO`.
+Esperado: solo el OP2 ve una barra propia de diez segmentos; porcentaje, texto y color reflejan su
+threat. El no operador no recibe bossbar. Al otorgar OP2 al segundo y entrar ambos en el mismo
+encuentro, el secundario muestra el threat compartido con la marca `GRUPO`.
 
 ### HUD-02 — override OP
 
-Ejecutar `/threatdirector threat set 90`, observar la barra y luego ejecutar
+Como OP2, ejecutar `/threatdirector threat set 90`, observar la barra y luego ejecutar
 `/threatdirector threat clear`.
 
 Esperado: cambia inmediatamente a `THREAT 90% · EXTREMO · FORZADO`; al limpiar desaparece la marca y
@@ -117,13 +118,14 @@ Desconectarse, reconectar, morir/respawnear y desactivar el mod desde configurac
 Esperado: no se duplican barras; el respawn conserva una sola barra y al desactivar el runtime se
 retira del HUD.
 
-### HUD-04 — preferencia personal
+### HUD-04 — permisos y preferencia
 
-Ejecutar `/threatdirector hud off` y `/threatdirector hud on` sin permisos OP. Después, como OP,
-repetir ambos comandos indicando otro jugador.
+Intentar `/threatdirector hud`, `/threatdirector hud off` y `/threatdirector hud on` sin permisos.
+Después, como OP2, repetirlos para sí mismo y para otro operador conectado.
 
-Esperado: cada jugador puede ocultar o recuperar su barra; modificar la preferencia ajena requiere
-nivel de permiso 2 y no altera el cálculo de threat.
+Esperado: el jugador sin OP2 no ve ni ejecuta ninguna rama `hud`. El operador puede ocultar o
+recuperar su barra y la de otro operador; la preferencia no altera el cálculo de threat. Aplicar
+`/deop` retira la barra en el siguiente refresco aunque la preferencia estuviera activada.
 
 ### INT-01 — jugador débil
 
@@ -172,7 +174,7 @@ en Engaging. El feedback informa threat, mobs y budget. Repetir con las demás e
 Forzar un encuentro con jugador full diamond en campo abierto y noche cerrada.
 
 Esperado: la población alcanza el mínimo contextual y no supera el `mobCap` reportado, el Threat
-Budget ni el máximo difícil 12; ningún spawn aparece en visión inmediata. La ruta normal completa
+Budget ni el máximo difícil 96; ningún spawn aparece en visión inmediata. La ruta normal completa
 Stalking → Positioning → Engaging → Relief, o pasa por Climax → Retreating cuando se cumplen sus
 condiciones, sin transiciones ilegales.
 
@@ -180,9 +182,9 @@ condiciones, sin transiciones ilegales.
 
 Repetir ENC-01 varias veces.
 
-Esperado: solo zombies, esqueletos, arañas y creepers; cada entidad consume su coste. Si los creepers
-generados están desactivados, se usa otro tipo permitido. Con `mobGriefing=true`, un creeper natural
-tampoco se recluta sin opt-in; con `mobGriefing=false`, sí puede participar.
+Esperado: solo zombies, esqueletos, arañas y creepers; cada entidad consume su coste. Schema 3 permite
+creepers generados y reclutados. Sus explosiones siguen las reglas vanilla de `mobGriefing`, mientras
+su incorporación continúa limitada por coste, budget, cap y spawn seguro.
 
 ### ENC-03 — Pinza
 
@@ -202,8 +204,9 @@ contrajuego lateral y abandona destinos inviables.
 
 Refugiarse detrás de tierra y madera simple.
 
-Esperado MVP: BreachPlanner puede informar el candidato, coste y ruta hipotética, pero todos los
-BlockState, BlockEntity e inventarios permanecen idénticos.
+Esperado: `BreachPlanner` puede informar el candidato, coste y ruta hipotética, pero el comando no
+modifica BlockState, BlockEntity ni inventarios. Ejecutar este caso en Normal o sin zombies Hard para
+no confundirlo con la habilidad destructiva independiente probada en ABIL-04.
 
 ### ENC-06 — spawn protegido
 
@@ -246,8 +249,9 @@ UUID ausente.
 
 Esperado: Hard reporta mayor `danger` que Normal, una zona `hard:night` que puede añadir `dark` si
 la luz local es 7 o menor, y presión no inferior en cap, mínimo contextual, atacantes y frecuencia
-táctica. El bioma bosque no añade una etiqueta propia: la zona depende de dificultad, noche, luz,
-cielo y altura. Se mantienen visión, chunks, población y Threat Budget seguros.
+táctica. Para un contexto `hard:surface` la política pura reporta chance 30 % por scan de 40 ticks,
+cap 64, mínimo 23, melee 23, oleada 13 cada 100 ticks y hasta diez. El requisito nocturno/oscuro
+para auto-inicio sigue siendo independiente. El bioma bosque no añade una etiqueta propia.
 
 ### ENC-12 — Hard en cueva oscura
 
@@ -255,10 +259,10 @@ cielo y altura. Se mantienen visión, chunks, población y Threat Budget seguros
    visión del cielo y con luz local 7 o menor.
 2. Mantener equipo, intensidad y grupo idénticos y forzar un encuentro en cada posición.
 
-Esperado: la cueva reporta `hard:night+dark+cave` y peligro 1.0, limitado sin overflow. Frente a la
-superficie, la presión contextual no disminuye: puede acercar el cap a 12, elevar el mínimo hasta 5,
-acelerar replans y habilitar refuerzos mayores. Ninguna de esas ventajas omite reglas vanilla de
-spawn o límites de seguridad.
+Esperado: la cueva reporta `hard:night+dark+cave` y peligro 1.0, limitado sin overflow. La política
+reporta chance 60 % por scan de 40 ticks, cap 96, mínimo 34, melee 34, replan 10 ticks y oleada de 20
+cada 80 ticks, hasta diez. Ninguna de esas ventajas omite reglas vanilla de spawn, nearby cap 160,
+Threat Budget, chunks o límites de seguridad.
 
 ### ENC-13 — oleadas de refuerzo acotadas
 
@@ -267,10 +271,122 @@ spawn o límites de seguridad.
    espacio de cap/presupuesto entre intervalos derrotando miembros de forma controlada.
 3. Registrar todos los eventos `encounter.reinforced` hasta terminar el encuentro.
 
-Esperado: pueden completarse como máximo cuatro oleadas de refuerzo; nunca aparece una quinta. Cada
+Esperado: pueden completarse como máximo diez oleadas de refuerzo; nunca aparece una undécima. Cada
 evento incrementa `wave`, informa zona/peligro y añade solo lo permitido por tamaño contextual,
-Threat Budget, cap del encuentro, máximo difícil 12, ownership y presupuesto global del planner. Si
+Threat Budget, cap del encuentro, máximo difícil 96, ownership y presupuesto global del planner. Si
 no existe población segura o quedan menos de dos mobs, se difiere o cancela la oleada sin forzarla.
+
+## Perfiles de dificultad y habilidades
+
+Estas habilidades se aplican a hostiles vanilla cargados aunque no pertenezcan a un encuentro. Al
+cambiar dificultad, generar entidades nuevas para verificar buffs/equipamiento aplicados durante
+`initialize`; no reutilizar una araña ya buffeada para afirmar que Easy la desactiva.
+
+### ABIL-01 — Easy vanilla y sin inicio automático
+
+1. Poner el mundo en Easy, fuera del spawn protegido, de noche y con un jugador por encima de la
+   intensidad mínima.
+2. Esperar al menos 100 scans de 40 ticks sin usar `start` ni `scene`.
+3. Generar zombies, esqueletos, arañas, creepers y endermen nuevos en un recinto seguro.
+
+Esperado: no se inicia ningún encuentro automático porque la chance Easy es exactamente cero. Los
+mobs conservan habilidades vanilla: sin targeting ampliado, equipo adicional del mod, buffs de
+araña, flechas especiales, dash o alertas añadidas. Un OP todavía puede forzar una escena Easy y esa
+ruta conserva health, spawn, cap, chunks y demás salvaguardas.
+
+### ABIL-02 — targeting común y ownership
+
+1. En Normal, colocar distintos `Monster` vanilla con visión a un Survival a 26–28 bloques; repetir
+   en Hard a 40–48 y en Easy a la misma distancia.
+2. Crear después un encuentro mediante `scene engaging` y observar un mob con el tag administrado.
+3. En LAN, poner al invitado más cerca que el host y repetir con ambos elegibles.
+
+Esperado: Normal escanea cada 20 ticks hasta 28 bloques y requiere visión; Hard escanea cada 10
+ticks hasta 48 y puede mantener memoria sin visión hasta 240 ticks. Easy no añade este goal. Mientras
+el mob está manejado por un encuentro, el targeting común se apaga y manda la compuerta del director.
+En LAN solo el host es target automático; el invitado puede participar o ser objetivo explícito de
+un comando OP, pero no lo selecciona este goal.
+
+### ABIL-03 — esqueletos predictivos
+
+1. Construir una pista lateral abierta y comparar esqueletos recién generados en Easy, Normal y Hard
+   contra un jugador que corre perpendicularmente.
+2. Medir tiros cerca del límite de alcance y observar tags/efectos durante una muestra amplia.
+3. En Hard, acercarse a menos de siete bloques con línea de visión y espacio detrás del esqueleto.
+
+Esperado: Easy conserva alcance 15 y flecha vanilla. Normal ataca hasta 24, lanza a velocidad 1.8,
+usa divergencia 3 y predicción parcial desde 12 bloques; aproximadamente 10 % de sus flechas añaden
+Slowness I durante 60 ticks. Hard ataca hasta 42, lanza a 2.2 y usa divergencia 0.25 en largo alcance
+—0.5 en corto—; hace kiting y puede ejecutar dash hacia atrás con cooldown. En una muestra suficiente,
+32 % de las flechas Hard se reparten entre Slowness II, Poison I, Nausea I y Blindness I con efectos
+vanilla. No aparece entidad ni paquete no vanilla.
+
+### ABIL-04 — zombies, refuerzos y guard destructivo
+
+1. Generar 100 zombies por dificultad y registrar equipo inicial.
+2. En Hard, recibir golpes de zombies y dañarlos de forma repetida fuera del cooldown, contando
+   refuerzos en un radio de 24 bloques.
+3. Dar a un zombie Hard un pico/hacha/pala apropiado, colocar al jugador tras un único bloque
+   compatible y repetir estas variantes: `mobGriefing=false`; dentro del spawn protegido; claim
+   `PROTECTED`; claim `UNKNOWN`; y finalmente fuera de spawn con `mobGriefing=true` y respuesta
+   `UNPROTECTED` o ausencia confirmada de sistema de claims.
+
+Esperado: Easy no recibe equipo del mod. Normal equipa herramienta/espada aproximadamente 40 % y no
+llama refuerzos ni rompe. Hard equipa aproximadamente 85 %, incluye pico y puede llevar escudo en
+30 % de los equipados; cada evento elegible tiene 20 % de llamada, máximo dos refuerzos, cooldown 200
+ticks y cap de ocho zombies cercanos. La obstrucción no cambia en las cuatro variantes denegadas.
+Solo la última puede romper un bloque adecuado, cargado, sin block entity, dureza `<=5`, sin drops y
+como máximo uno por intento de 30 ticks. Contenedores, bloques sin herramienta adecuada, world border
+y chunks no cargados permanecen intactos.
+
+### ABIL-05 — creepers parciales y Apocalypse
+
+1. En Normal, acercarse y alejar la mirada de un creeper a menos de 18 bloques; medir velocidad y
+   duración de mecha en varias repeticiones.
+2. En Hard, repetir escuchando pasos, luego provocar un dash visible entre 4 y 10 bloques.
+3. Con protección contra explosión, dejarlo bloqueado 20 ticks tras una pared, sin visión y a 4.5
+   bloques; repetir con `mobGriefing=false`.
+
+Esperado: Normal solo acelera la aproximación trasera `×1.35` y elige una mecha entre 70–100 % de la
+vanilla. Hard usa `×2`, mecha 30–100 %, silencia pasos y puede hacer dash con cooldown 60 ticks. El
+encendido de pared solo ocurre con `mobGriefing=true`; la explosión, daño, sonido y sincronización son
+vanilla. Easy carece de todos estos cambios.
+
+### ABIL-06 — arañas, telaraña y crías
+
+1. Generar arañas nuevas en cada dificultad y consultar sus efectos.
+2. En Hard permitir golpes separados por 100 ticks sobre posiciones reemplazables, primero con
+   `mobGriefing=false` o claim protegido y luego en zona permitida.
+3. Matar una araña Hard y después matar las cave spiders producidas.
+
+Esperado: Easy no añade buffs. Normal aplica Speed I y Jump Boost I. Hard aplica Speed II, Jump Boost
+II, Regeneration I y Strength I; solo en zona autorizada coloca como máximo una telaraña por golpe y
+cooldown. Al morir intenta generar dos cave spiders vanilla con tag
+`threatdirector.spider_hatchling`; sus muertes no generan otra camada. Fallos de chunk, border o
+colisión reducen la cantidad sin forzar spawn.
+
+### ABIL-07 — endermen coordinados y anti-pillar
+
+1. Rodear otro hostile con endermen y hacerle daño como Survival.
+2. Repetir en Normal y Hard, contando aliados alertados y distancias.
+3. En Hard subir a un pilar con al menos 2.25 bloques de ventaja, soporte sólido y tres lados libres,
+   manteniendo al enderman a cuatro bloques horizontales o menos.
+
+Esperado: Normal intenta alertar hasta dos endermen dentro de 12 bloques, con 50 % por candidato.
+Hard alerta hasta seis dentro de 24 con 100 %. Creative/Spectator no provocan la alerta. En combate
+Hard adopta postura de 1.95 bloques y, tras 30 ticks de ventaja válida, intenta teleport al objetivo
+con cooldown 80; geometría que no cumpla el detector no lo dispara.
+
+### ABIL-08 — otras familias vanilla
+
+Probar al menos una entidad de cada familia: witch/illager, blaze/ghast/phantom, guardian,
+drowned/husk, silverfish/endermite/slime/magma cube y ravager/piglin brute.
+
+Esperado: además del targeting común, Normal/Hard aplican reglas acotadas y con cooldown: debilidad o
+coordinación de raiders, impulso de aproximación aérea, fatiga de guardian/drowned, hambre de husk,
+rally de enjambres y carga de brutos solo en Hard. Las ventanas de distancia, visión, agua, máximo de
+aliados y caps de velocidad impiden spam. Una entidad de la familia residual `OTHER` recibe targeting
+28/48, pero ninguna habilidad temática genérica.
 
 ## Multijugador
 
@@ -295,17 +411,22 @@ Un tercer jugador golpea un mob mientras este acecha.
 Esperado: el mob puede defenderse o se libera del director; la compuerta táctica no lo vuelve
 incapaz de responder indefinidamente.
 
-### MP-04 — host LAN preferido y cliente sin mod
+### MP-04 — host LAN como única ancla automática y cliente sin mod
 
 1. El host inicia un mundo integrado con Fabric API y Threat Director y lo abre a LAN.
 2. Un segundo cliente Minecraft 1.20.1 sin Threat Director entra, equipa más potencia que el host y
    permanece en Survival dentro de `groupRadius`.
-3. Esperar un scan automático elegible —no usar inicio forzado— y observar HUD y target primario.
+3. Esperar un scan automático elegible —no usar inicio forzado— y observar target primario y HUD.
+4. Finalizar el encuentro, hacer inelegible al host y dejar al invitado en Survival durante varios
+   scans de 40 ticks.
+5. Como OP2, ejecutar `/threatdirector start <invitado>`; después otorgar OP2 al invitado.
 
-Esperado: el cliente remoto conecta sin handshake, canal ni paquete del mod y ve su bossbar vanilla.
-El host LAN es el target primario preferido aunque el invitado tenga mayor potencia; el invitado
-participa como miembro del grupo y su barra muestra `GRUPO`. Al salir del encuentro desaparece la
-marca compartida; al desconectarse o cerrar el mundo se limpian barras y referencias retenidas.
+Esperado: el cliente remoto conecta sin handshake, canal ni paquete del mod. Sin OP2 no recibe
+bossbar. Mientras el host es elegible, es siempre el target automático aunque el invitado tenga más
+potencia; el invitado nunca lo sustituye cuando el host queda inelegible. El inicio administrativo
+explícito sí puede elegir al invitado y, una vez que este tiene OP2, la barra vanilla autoritativa del
+servidor aparece. Al salir del encuentro desaparece `GRUPO`; al desconectarse o cerrar el mundo se
+limpian barras y referencias retenidas.
 
 ## Rendimiento y degradación
 
@@ -313,10 +434,10 @@ marca compartida; al desconectarse o cerrar el mundo se limpian barras y referen
 
 Visualizar candidatos y provocar replans desplazándose rápidamente.
 
-Esperado: a nivel 0 nunca se superan 32 candidatos por snapshot ni 48 operaciones globales por tick,
-compartidas entre población inicial, refuerzos y controladores activos. Se permiten cuatro intentos
-base de path por mob y solo un quinto contextual cuando `danger >= 0.70`. El replan base es 30 ticks
-antes de ajustes de presión y gobernador.
+Esperado: a nivel 0 nunca se superan 64 candidatos por snapshot, cinco intentos de path por mob ni
+192 operaciones globales por tick, compartidas entre población inicial, refuerzos y controladores
+activos. El trabajo total del planner queda además limitado a 20 000 microsegundos por tick. El
+replan base es 20 ticks antes de ajustes de presión y gobernador.
 
 ### PERF-02 — servidor bajo carga
 
@@ -367,7 +488,8 @@ servidor. Conectar a cada uno un cliente remoto Minecraft 1.20.1 sin el mod.
 
 Esperado: carga completa sin referencias opcionales, comandos disponibles, preset Vanilla Plus y
 conexión de los clientes sin instalar Threat Director. El host integrado sí lleva el mod porque
-ejecuta el servidor; HUD, IA y configuración siguen siendo autoritativos del servidor.
+ejecuta el servidor; HUD, IA y configuración siguen siendo autoritativos del servidor. Los clientes
+remotos sin OP2 no reciben HUD; al conceder OP2 reciben la bossbar vanilla sin instalar el mod.
 
 ### COMP-02 — mob externo próximo
 
@@ -386,18 +508,25 @@ Esperado: solo ese adapter se deshabilita y el core retorna al comportamiento va
 
 Caso de fase posterior: simular respuesta `UNKNOWN` de claims.
 
-Esperado: toda acción destructiva se deniega. La simulación explica que no pudo demostrar permiso.
+Esperado: toda acción destructiva real del módulo zombie o de telarañas se deniega. BreachPlanner no
+modifica bloques en ningún caso y su simulación explica que no pudo demostrar permiso.
 
-## Criterio de cierre del MVP
+## Criterio de cierre de 0.3.0
 
 - Build y JUnit pasan desde checkout limpio; los GameTests están planificados como siguiente capa.
 - Cliente integrado y servidor dedicado deben arrancar sin mods externos; ambos son escenarios de
   aceptación manual, no una afirmación cubierta por JUnit.
-- Un cliente remoto 1.20.1 sin Threat Director conecta a dedicado y LAN, recibe la bossbar vanilla
-  y en LAN el host es el target automático preferido del grupo.
-- Se reproducen ENC-01, ENC-03, ENC-04 y ENC-11 a ENC-13 con máximo normal 8, máximo difícil 12 y no
-  más de cuatro oleadas de refuerzo.
-- No existe ninguna modificación de bloques causada por BreachPlanner.
+- Un cliente remoto 1.20.1 sin Threat Director conecta a dedicado y LAN; solo recibe la bossbar
+  vanilla si tiene OP2. En LAN el host es la única ancla y el único target automático.
+- Easy no genera encuentros automáticos ni altera habilidades vanilla. Normal conserva presión
+  parcial. Hard reproduce caps 64/96, mínimos 23/34, melee 23/34, oleadas 13/20 de hasta diez cada
+  100/80 ticks y chances 30 %/60 % por scan de 40 ticks según superficie/peligro completo.
+- El targeting 28/48 alcanza a todos los `Monster`, se apaga mientras el mob lleva el tag de gestión
+  de un encuentro y en LAN solo adquiere al host.
+- Se reproducen las habilidades específicas de skeleton, creeper, zombie, spider y enderman, y al
+  menos una muestra de cada familia temática restante, sin cambios de habilidad en Easy.
+- BreachPlanner no modifica bloques. La rotura zombie real solo ocurre con `mobGriefing=true`, chunk
+  cargado, dentro del world border, fuera del spawn protegido y permiso de claims demostrado.
 - Un fallo de config, telemetría o integración no sustituye la última configuración válida ni
   detiene el servidor.
 - No se observan chunks forzados, persecución infinita ni órdenes tácticas retenidas tras finalizar.

@@ -17,13 +17,21 @@ El núcleo funciona sin mods de contenido. Las futuras integraciones con claims,
 accesorios, magia y Prominence II se cargan mediante una API opcional y no son
 dependencias obligatorias.
 
-## MVP implementado
+## Versión 0.3.0
 
 - Adventure Intensity explicable, suavizada y calculada por jugador/grupo.
 - Threat Budget entero de por vida: base más reserva de refuerzos, sin reciclar el coste de las bajas.
-- Presión contextual creciente en Easy, Normal y Hard, reforzada por noche, oscuridad y cuevas.
-- Cap normal de 8, hard cap de 12 y hasta cuatro oleadas de reposición en Engaging o Climax cuando
-  un mob confirma visualmente al objetivo primario.
+- Tres escalones deliberados: Easy conserva habilidades vanilla y no inicia encuentros automáticos;
+  Normal aplica una versión parcial; Hard activa el modo Apocalypse completo.
+- Presión contextual reforzada por noche, oscuridad y cuevas. En Hard, el cap por defecto pasa de
+  `64` en superficie a `96` con peligro completo; los mínimos son `23/34`, los slots melee `23/34`
+  y las oleadas son de `13/20` mobs, hasta diez, cada `100/80` ticks respectivamente.
+- Scan automático cada 40 ticks. La probabilidad calculada de Hard es 30 % en superficie y 60 % con
+  peligro completo; la elegibilidad nocturna/oscura configurada sigue siendo una salvaguarda aparte.
+- Hard cap por defecto de 96, `hardMaxMobs` validable hasta 128 y cap local de 160 hostiles cercanos.
+- En threat extremo, la población inicial más diez reposiciones puede hacer pasar cientos de mobs
+  por un mismo asedio. El límite concurrente de 96 evita mantener cientos de pathfinders activos a
+  la vez, pero desde una aldea la presión llega como una masa continua mientras exista budget.
 - Escalado multijugador con rendimientos decrecientes, objetivos distribuidos y propiedad exclusiva
   de cada mob por encuentro.
 - Roles Vanguard, Flanker, Harasser e Interceptor sobre goals y navegación vanilla.
@@ -32,20 +40,46 @@ dependencias obligatorias.
 - PerformanceGovernor con siete niveles de degradación.
 - Salvaguardas por salud, muerte reciente, distancia máxima, spawn y dificultad.
 - Configuración de servidor `config/threatdirector.json` y preset `VANILLA_PLUS`.
-- BreachPlanner exclusivamente simulado: no existe ninguna llamada de rotura de bloques.
+- BreachPlanner exclusivamente simulado. Por separado, un zombie Hard con herramienta puede romper
+  una obstrucción compatible solo si `mobGriefing`, claims, chunks, world border y spawn seguro lo
+  permiten; `UNKNOWN` de claims falla cerrado.
 - API transaccional para adapters opcionales y claims con fallo cerrado.
 - Telemetría NDJSON local, acotada y desactivada por defecto.
-- Barra HUD vanilla personalizada por jugador, sin paquetes personalizados ni mod cliente adicional.
-- Autoridad del servidor integrado: en LAN el host elegible es el ancla preferida de su grupo.
+- Barra HUD vanilla exclusiva para OP2, sin paquetes personalizados ni mod cliente adicional.
+- Autoridad del servidor integrado: en LAN solo el host puede ser ancla de un inicio automático.
 
-Los creepers creados por el director están desactivados por defecto. Los creepers naturales tampoco
-se reclutan mientras `mobGriefing` permita dañar bloques, salvo activación explícita del mismo
-interruptor; con `mobGriefing=false` pueden participar sin destruir terreno.
+El schema 3 permite creepers creados o reclutados por el director. Sus explosiones siguen las reglas
+vanilla y `mobGriefing`; continúan sujetos a coste, cap, spawn seguro y Threat Budget.
+
+## Habilidades por dificultad
+
+- **Esqueletos:** Normal usa alcance 24, velocidad de flecha 1.8 y divergencia 3 con predicción
+  parcial, más una probabilidad baja de lentitud. Hard usa alcance 42, velocidad 2.2, divergencia
+  0.25 a distancia —0.5 en corto—, mejora kiting, puede hacer dash y reparte lentitud, veneno,
+  náusea o ceguera entre sus flechas especiales. Easy no se modifica.
+- **Creepers:** Normal acelera la aproximación por la espalda y acorta parcialmente la mecha. Hard
+  añade pasos silenciosos, dash, mecha más impredecible y encendido ante paredes bajo autoridad
+  vanilla de `mobGriefing`.
+- **Zombies:** Normal puede equipar herramientas melee. Hard añade mejor equipo, escudo ocasional,
+  refuerzos acotados y rotura selectiva de un bloque apropiado para su herramienta bajo el guard
+  destructivo del servidor.
+- **Arañas:** Normal recibe Speed I y Jump Boost I. Hard sube esos buffs, añade regeneración y
+  fuerza, puede colocar una telaraña protegida al golpear y genera hasta dos cave spiders vanilla al
+  morir, sin recursión de crías.
+- **Endermen:** Normal puede alertar hasta dos aliados cercanos. Hard amplía la alerta, adopta postura
+  de combate de dos bloques y responde a pilares bajos con teleport acotado.
+- **Targeting común:** todos los `Monster` alcanzan 28 bloques en Normal y 48 en Hard. Este goal se
+  apaga en mobs administrados por un encuentro para no competir con el director; en LAN solo puede
+  seleccionar al host.
+- **Otros hostiles vanilla:** reciben además presión temática server-side por familias. Brujas/illagers,
+  voladores de fuego, guardianes, drowned/husks, enjambres y brutos tienen reglas acotadas; la familia
+  residual continúa genérica, sin una habilidad especial inventada.
 
 ## Comandos
 
 Las mutaciones del director y las operaciones sobre otro jugador requieren nivel de permiso 2.
-Cada jugador puede consultar su estado y mostrar u ocultar su propio HUD sin ser OP.
+`status`, `intensity`, `threat`, `roles` y `budget` conservan sus consultas libres para el propio
+jugador. El HUD, su consulta y sus comandos `on/off` son exclusivos de OP2.
 
 ```text
 /threatdirector status [player]
@@ -99,31 +133,33 @@ para formar el mínimo contextual rechazan la escena con una causa clara, en vez
 
 ## HUD de amenaza
 
-Cada jugador conectado que no esté en modo espectador recibe una barra segmentada de diez partes con
+Cada operador conectado que no esté en modo espectador recibe una barra segmentada de diez partes con
 su threat efectivo de `0–100`. Cambia de verde a amarillo, rojo y púrpura para los niveles bajo,
 táctico, alto y extremo. Un valor administrativo añade `FORZADO` al título. Durante un encuentro
-multijugador, todos los participantes ven la intensidad compartida y los secundarios reciben la
+multijugador, los participantes OP ven la intensidad compartida y los secundarios reciben la
 marca `GRUPO`. La barra usa `ServerBossBar`, por lo que funciona con el HUD vanilla y no requiere una
-implementación gráfica en el cliente. Está visible por defecto y cada jugador puede ocultarla con
-`/threatdirector hud off`; solo un OP puede cambiar la preferencia de otro jugador.
+implementación gráfica en el cliente. Está visible por defecto para OP2 y se controla con
+`/threatdirector hud on|off`, también restringido a OP2.
 
-La rotura real, adapters de Prominence II, claims concretos, élites y el resto de patrones quedan
-para fases posteriores. El núcleo actual ya funciona sin ninguno de ellos.
+Los adapters concretos de Prominence II, élites y patrones adicionales quedan para iteraciones
+posteriores. El núcleo actual funciona sin ninguno de ellos.
 
 ## Instalación
 
 1. Preparar Minecraft 1.20.1 con Fabric Loader 0.18.4 y Java 17.
 2. Instalar Fabric API 0.92.11+1.20.1.
-3. Copiar `threat-director-0.2.0.jar` a la carpeta `mods` del servidor o de la instancia integrada.
+3. Copiar `threat-director-0.3.0.jar` a la carpeta `mods` del servidor o de la instancia integrada.
 4. Iniciar una vez para crear `config/threatdirector.json` y ajustar el preset si es necesario.
 
-Al actualizar desde `0.1.0`, un archivo v1 que aún conserve exactamente los valores originales se
-migra automáticamente a los nuevos defaults v2 de `VANILLA_PLUS`. Una configuración v1 personalizada
-conserva sus valores y solo actualiza su número de schema.
+La configuración actual usa schema 3. Un archivo schema 1 o 2 que conserve exactamente su preset
+original migra a todos los defaults de 0.3.0. Un archivo personalizado conserva sus secciones y
+valores y actualiza `schemaVersion`; si ya no satisface una invariante de seguridad, la recarga lo
+rechaza y mantiene la última snapshot válida.
 
 En un mundo abierto por LAN basta con instalar Threat Director y Fabric API en la instancia del
-anfitrión. En la selección automática, un host elegible es el ancla prioritaria de su grupo; un OP
-todavía puede dirigir `start` o `scene` explícitamente a otro jugador. Los invitados pueden conectarse
+anfitrión. En la selección automática, solo un host elegible puede ser ancla; un invitado nunca abre
+por sí solo un encuentro automático. Un OP todavía puede dirigir `start` o `scene` explícitamente a
+otro jugador. Los invitados pueden conectarse
 sin el mod porque no se registran contenidos ni paquetes personalizados; otros mods instalados en esa
 instancia sí pueden imponer requisitos propios.
 

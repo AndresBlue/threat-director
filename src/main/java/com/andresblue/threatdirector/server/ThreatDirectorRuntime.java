@@ -188,12 +188,14 @@ public final class ThreatDirectorRuntime implements AutoCloseable {
     }
 
     public void setHudEnabled(ServerPlayerEntity player, boolean enabled) {
-        hud.setEnabled(player.getUuid(), enabled);
+        boolean operator = server.getPlayerManager().isOperator(player.getGameProfile());
+        hud.setEnabled(player.getUuid(), operator && enabled);
         refreshHud();
     }
 
     public boolean isHudEnabled(ServerPlayerEntity player) {
-        return hud.isEnabled(player.getUuid());
+        return server.getPlayerManager().isOperator(player.getGameProfile())
+                && hud.isEnabled(player.getUuid());
     }
 
     public CompatibilityRegistry compatibility() {

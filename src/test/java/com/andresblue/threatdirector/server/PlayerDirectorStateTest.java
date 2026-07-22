@@ -72,6 +72,14 @@ class PlayerDirectorStateTest {
         assertTrue(hud.isEnabled(playerId));
     }
 
+    @Test
+    void threatBarIsVisibleOnlyToOperatorsWhoHaveNotHiddenIt() {
+        assertTrue(ThreatHudService.shouldDisplay(true, false, true));
+        assertFalse(ThreatHudService.shouldDisplay(false, false, true));
+        assertFalse(ThreatHudService.shouldDisplay(true, true, true));
+        assertFalse(ThreatHudService.shouldDisplay(true, false, false));
+    }
+
     private static AdventureIntensityBreakdown breakdown() {
         return new AdventureIntensityBreakdown(0.4, 0.5, 0.6, 0.0, 0.0, 0.0, 50.0);
     }

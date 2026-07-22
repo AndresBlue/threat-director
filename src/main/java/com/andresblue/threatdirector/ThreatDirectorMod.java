@@ -2,6 +2,8 @@ package com.andresblue.threatdirector;
 
 import com.andresblue.threatdirector.command.ThreatDirectorCommands;
 import com.andresblue.threatdirector.config.ConfigManager;
+import com.andresblue.threatdirector.apocalypse.ApocalypseSkeletonModule;
+import com.andresblue.threatdirector.apocalypse.other.OtherHostileApocalypseModule;
 import com.andresblue.threatdirector.server.ThreatDirectorRuntime;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -29,6 +31,9 @@ public final class ThreatDirectorMod implements ModInitializer {
                     "Could not load threatdirector.json; using in-memory Vanilla Plus defaults",
                     exception);
         }
+
+        ApocalypseSkeletonModule.register();
+        OtherHostileApocalypseModule.register();
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
                 ThreatDirectorCommands.register(dispatcher, ThreatDirectorMod::runtime));
@@ -63,5 +68,10 @@ public final class ThreatDirectorMod implements ModInitializer {
 
     public static Optional<ThreatDirectorRuntime> runtime() {
         return Optional.ofNullable(runtime);
+    }
+
+    /** Global gameplay switch used by server-side entity hooks as well as the encounter runtime. */
+    public static boolean isEnabled() {
+        return CONFIG_MANAGER.current().enabled();
     }
 }

@@ -28,6 +28,7 @@ public record EncounterPressure(
         int meleeAttackers,
         int replanIntervalTicks,
         int reinforcementSize,
+        int maximumReinforcementWaves,
         int reinforcementIntervalTicks,
         double cooldownMultiplier) {
     private static final double NIGHT_HAZARD = 0.08;
@@ -67,6 +68,12 @@ public record EncounterPressure(
         if (reinforcementSize < 0 || reinforcementSize > mobCap) {
             throw new IllegalArgumentException("reinforcementSize must be between 0 and mobCap");
         }
+        if (maximumReinforcementWaves < 0
+                || (reinforcementSize == 0 && maximumReinforcementWaves != 0)
+                || (reinforcementSize > 0 && maximumReinforcementWaves == 0)) {
+            throw new IllegalArgumentException(
+                    "maximumReinforcementWaves must be positive exactly when waves are enabled");
+        }
         if ((reinforcementSize == 0 && reinforcementIntervalTicks != 0)
                 || (reinforcementSize > 0 && reinforcementIntervalTicks <= 0)) {
             throw new IllegalArgumentException(
@@ -105,36 +112,39 @@ public record EncounterPressure(
                 : adaptiveIntensity(intensity, intensityConfig.maxIntensity(), hazard);
         double encounterChance = peaceful
                 ? 0.0
-                : clamp(director.encounterChancePerScan()
-                        * (0.5 + 7.5 * hazard * hazard), 0.0, 1.0);
+                : encounterChance(director.encounterChancePerScan(), context);
 
         int hardMax = Math.max(0, encounter.hardMaxMobs());
         int normalCap = clamp(encounter.maxMobs(), 0, hardMax);
         int configuredMinimum = clamp(encounter.minMobs(), 0, normalCap);
         int mobCap = peaceful
                 ? 0
-                : interpolateMobCap(configuredMinimum, normalCap, hardMax, hazard);
+                : apocalypseMobCap(configuredMinimum, normalCap, hardMax, context);
         int minimumMobs = peaceful
                 ? 0
-                : Math.min(mobCap, configuredMinimum + pressureStep(hazard));
+                : apocalypseMinimum(configuredMinimum, mobCap, context.difficulty());
 
         int configuredMelee = Math.max(0, tactical.maxSimultaneousMeleeAttackers());
         int meleeAttackers = peaceful
                 ? 0
-                : Math.min(mobCap, configuredMelee + pressureStep(hazard));
+                : apocalypseMelee(configuredMelee, mobCap, context.difficulty());
         int replanIntervalTicks = Math.max(1, (int) Math.round(
                 Math.max(1, tactical.replanIntervalTicks()) * cadenceMultiplier(hazard)));
 
-        int desiredReinforcements = peaceful ? 0 : reinforcementSizeFor(hazard);
+        int desiredReinforcements = peaceful
+                ? 0
+                : reinforcementSizeFor(mobCap, context.difficulty());
         int reinforcementSize = Math.min(
                 desiredReinforcements,
                 Math.max(0, mobCap - minimumMobs));
+        int maximumReinforcementWaves = reinforcementSize == 0
+                ? 0
+                : maximumReinforcementWaves(context.difficulty());
         int reinforcementIntervalTicks = reinforcementSize == 0
                 ? 0
                 : Math.max(
                         replanIntervalTicks,
-                        (int) Math.round(Math.max(1, encounter.engagingMaxTicks())
-                                * Math.max(0.20, 1.0 - hazard)));
+                        (int) Math.round(200.0 * clamp(1.25 - hazard, 0.40, 1.0)));
 
         return new EncounterPressure(
                 hazard,
@@ -146,8 +156,9 @@ public record EncounterPressure(
                 meleeAttackers,
                 replanIntervalTicks,
                 reinforcementSize,
+                maximumReinforcementWaves,
                 reinforcementIntervalTicks,
-                cooldownMultiplier(hazard));
+                cooldownMultiplier(context));
     }
 
     /** Uses the effective value and explicit-override state already maintained for a player. */
@@ -193,51 +204,91 @@ public record EncounterPressure(
         return clamp(contextual, 0.0, maximum);
     }
 
-    private static int interpolateMobCap(
-            int minimum, int normalCap, int hardMax, double hazard) {
-        if (hazard <= 0.50) {
-            double progress = hazard / 0.50;
-            return clamp(
-                    (int) Math.round(minimum + (normalCap - minimum) * progress),
+    private static double encounterChance(double configuredChance, Context context) {
+        double environmental = environmentalFraction(context);
+        double multiplier = switch (context.difficulty()) {
+            case PEACEFUL -> 0.0;
+            // Easy is the vanilla-compatible tier. Administrators can still force a scene,
+            // but the director never starts an automatic horde on this difficulty.
+            case EASY -> 0.0;
+            case NORMAL -> 1.50 + environmental * 2.0;
+            case HARD -> 5.0 + environmental * 5.0;
+        };
+        return clamp(configuredChance * multiplier, 0.0, 1.0);
+    }
+
+    private static int apocalypseMobCap(
+            int minimum, int normalCap, int hardMax, Context context) {
+        double environmental = environmentalFraction(context);
+        int easyCap = clamp(Math.max(minimum, Math.min(6, normalCap)), minimum, hardMax);
+        return switch (context.difficulty()) {
+            case PEACEFUL -> 0;
+            case EASY -> easyCap;
+            case NORMAL -> clamp(
+                    (int) Math.round(normalCap + (hardMax - normalCap) * 0.35 * environmental),
                     minimum,
                     hardMax);
-        }
-        double progress = (hazard - 0.50) / 0.50;
-        return clamp(
-                (int) Math.round(normalCap + (hardMax - normalCap) * progress),
-                minimum,
-                hardMax);
+            case HARD -> clamp(
+                    (int) Math.round(normalCap
+                            + (hardMax - normalCap) * (0.50 + 0.50 * environmental)),
+                    minimum,
+                    hardMax);
+        };
     }
 
-    private static int pressureStep(double hazard) {
-        if (hazard >= 0.70) {
-            return 2;
-        }
-        if (hazard >= 0.45) {
-            return 1;
-        }
-        return 0;
+    private static int apocalypseMinimum(int configuredMinimum, int mobCap, Difficulty difficulty) {
+        return Math.min(mobCap, switch (difficulty) {
+            case PEACEFUL -> 0;
+            case EASY -> configuredMinimum;
+            case NORMAL -> Math.max(configuredMinimum, (int) Math.ceil(mobCap * 0.33));
+            case HARD -> Math.max(configuredMinimum, (int) Math.ceil(mobCap * 0.35));
+        });
     }
 
-    private static int reinforcementSizeFor(double hazard) {
-        if (hazard >= 0.85) {
-            return 3;
-        }
-        if (hazard >= 0.65) {
-            return 2;
-        }
-        if (hazard >= 0.45) {
-            return 1;
-        }
-        return 0;
+    private static int apocalypseMelee(int configuredMelee, int mobCap, Difficulty difficulty) {
+        return Math.min(mobCap, switch (difficulty) {
+            case PEACEFUL -> 0;
+            case EASY -> Math.min(2, configuredMelee);
+            case NORMAL -> Math.max(configuredMelee, (int) Math.ceil(mobCap * 0.25));
+            case HARD -> Math.max(configuredMelee, (int) Math.ceil(mobCap * 0.35));
+        });
+    }
+
+    private static int reinforcementSizeFor(int mobCap, Difficulty difficulty) {
+        return switch (difficulty) {
+            case PEACEFUL, EASY -> 0;
+            case NORMAL -> Math.max(4, (int) Math.ceil(mobCap * 0.12));
+            case HARD -> Math.max(12, (int) Math.ceil(mobCap * 0.20));
+        };
+    }
+
+    private static int maximumReinforcementWaves(Difficulty difficulty) {
+        return switch (difficulty) {
+            case PEACEFUL, EASY -> 0;
+            case NORMAL -> 6;
+            case HARD -> 10;
+        };
     }
 
     private static double cadenceMultiplier(double hazard) {
         return clamp(1.50 - hazard, 0.50, 1.50);
     }
 
-    private static double cooldownMultiplier(double hazard) {
-        return clamp(1.25 - hazard, 0.25, 1.25);
+    private static double cooldownMultiplier(Context context) {
+        double environmental = environmentalFraction(context);
+        return switch (context.difficulty()) {
+            case PEACEFUL -> 1.0;
+            case EASY -> 1.50;
+            case NORMAL -> clamp(1.0 - environmental * 0.40, 0.60, 1.0);
+            case HARD -> clamp(0.35 - environmental * 0.20, 0.15, 0.35);
+        };
+    }
+
+    private static double environmentalFraction(Context context) {
+        double environmental = (context.night() ? NIGHT_HAZARD : 0.0)
+                + (context.darkness() ? DARKNESS_HAZARD : 0.0)
+                + (context.cave() ? CAVE_HAZARD : 0.0);
+        return clamp(environmental / (NIGHT_HAZARD + DARKNESS_HAZARD + CAVE_HAZARD), 0.0, 1.0);
     }
 
     private static String zoneLabel(Context context) {

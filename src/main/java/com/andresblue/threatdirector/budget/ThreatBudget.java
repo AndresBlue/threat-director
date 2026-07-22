@@ -76,14 +76,14 @@ public final class ThreatBudget {
             base = 0;
             intensityCap = 0;
         } else if (bounded < 60.0) {
-            base = 3_500 + (int) Math.round((bounded - 35.0) / 25.0 * 2_000.0);
-            intensityCap = 6;
+            base = 16_000 + (int) Math.round((bounded - 35.0) / 25.0 * 32_000.0);
+            intensityCap = 24;
         } else if (bounded < 85.0) {
-            base = 5_500 + (int) Math.round((bounded - 60.0) / 25.0 * 3_500.0);
-            intensityCap = 9;
+            base = 48_000 + (int) Math.round((bounded - 60.0) / 25.0 * 48_000.0);
+            intensityCap = 72;
         } else {
-            base = 9_000 + (int) Math.round((bounded - 85.0) / 15.0 * 3_000.0);
-            intensityCap = 12;
+            base = 96_000 + (int) Math.round((bounded - 85.0) / 15.0 * 64_000.0);
+            intensityCap = 96;
         }
         double boundedGroupMultiplier = Math.max(1.0, finiteOr(groupMultiplier, 1.0));
         int baseTotal = roundedProduct(

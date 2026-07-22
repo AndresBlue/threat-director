@@ -87,10 +87,12 @@ public final class ConfigManager {
     }
 
     private static Migration migrate(ThreatDirectorConfig candidate) {
-        if (candidate == null || candidate.schemaVersion() != 1) {
+        if (candidate == null
+                || (candidate.schemaVersion() != 1 && candidate.schemaVersion() != 2)) {
             return new Migration(candidate, false);
         }
-        if (candidate.equals(ThreatDirectorConfig.legacyVanillaPlusV1())) {
+        if (candidate.equals(ThreatDirectorConfig.legacyVanillaPlusV1())
+                || candidate.equals(ThreatDirectorConfig.legacyVanillaPlusV2())) {
             return new Migration(ThreatDirectorConfig.vanillaPlus(), true);
         }
         ThreatDirectorConfig migrated = new ThreatDirectorConfig(

@@ -1,6 +1,6 @@
 # Threat Director — guía completa de comandos
 
-Esta guía describe el árbol de comandos del MVP para Minecraft 1.20.1. Todos los comandos son
+Esta guía describe el árbol de comandos de Threat Director 0.3.0 para Minecraft 1.20.1. Todos los comandos son
 autoritativos del servidor y comienzan con `/threatdirector`.
 
 ## Convenciones
@@ -16,7 +16,9 @@ autoritativos del servidor y comienzan con `/threatdirector`.
   muestran el motivo en rojo.
 
 La regla de permisos es: las mutaciones del director y las operaciones sobre otro jugador requieren
-OP2. La única mutación disponible para un jugador sin permisos es mostrar u ocultar su propio HUD.
+OP2. El HUD es una herramienta administrativa: solo se muestra a operadores y todas las ramas
+`hud`, incluida la preferencia propia, requieren OP2. Las consultas propias de estado, intensidad y
+threat continúan disponibles sin permisos.
 
 ## Resumen de sintaxis y permisos
 
@@ -32,9 +34,9 @@ OP2. La única mutación disponible para un jugador sin permisos es mostrar u oc
 | `/threatdirector threat set <0..100> <player>` | OP2 | Sí | Fuerza el threat del objetivo o dueño grupal |
 | `/threatdirector threat clear` | OP2 | No | Elimina el override propio o grupal |
 | `/threatdirector threat clear <player>` | OP2 | Sí | Elimina el override del objetivo o dueño grupal |
-| `/threatdirector hud` | Libre | No | Consulta el HUD propio |
+| `/threatdirector hud` | OP2 | No | Consulta el HUD propio |
 | `/threatdirector hud <player>` | OP2 | Sí | Consulta el HUD de otro jugador |
-| `/threatdirector hud on\|off` | Libre | No | Muestra u oculta el HUD propio |
+| `/threatdirector hud on\|off` | OP2 | No | Muestra u oculta el HUD propio |
 | `/threatdirector hud on\|off <player>` | OP2 | Sí | Cambia el HUD de otro jugador |
 | `/threatdirector start` | OP2 | No | Inicia un encuentro forzado en Stalking |
 | `/threatdirector start <player>` | OP2 | Sí | Inicia un encuentro para el objetivo |
@@ -95,24 +97,31 @@ subir o bajar. Un override usa directamente los umbrales anteriores. Durante un 
 un secundario consulta el estado del objetivo primario y recibe `compartido con <nombre>`.
 
 La presión de encuentro no sustituye la barra. Es la intensidad que usa la composición táctica tras
-combinar el threat adaptativo con dificultad y entorno. Easy, Normal y Hard son progresivos; noche,
-luz `<=7` y cueva aumentan frecuencia, cap, quorum, atacantes simultáneos, replanning y refuerzos.
+combinar el threat adaptativo con dificultad y entorno. Easy conserva habilidades vanilla y tiene
+probabilidad automática cero; Normal activa presión y habilidades parciales; Hard activa Apocalypse.
+Noche, luz `<=7` y cueva aumentan frecuencia, cap, quorum, atacantes simultáneos, replanning y refuerzos.
 Un override OP conserva exactamente su número y no recibe esta bonificación de intensidad, aunque
 Hard y la zona todavía determinan la forma táctica y el hard cap.
 
-Referencia de los defaults v2 de `VANILLA_PLUS` en superficie, antes de multiplicadores de grupo o
-límites de budget:
+Referencia de los defaults schema 3 de `VANILLA_PLUS`, antes de multiplicadores de grupo o límites
+de budget. Cada scan ocurre cada `40` ticks:
 
-| Dificultad | Hazard | Ajuste adaptativo | Chance/scan | Cap | Mínimo | Melee | Replan | Refuerzo | Cooldown |
+| Contexto | Hazard | Ajuste adaptativo | Chance/scan | Cap | Mínimo | Melee | Replan | Refuerzos | Cooldown |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Easy | .25 | −5 | 3.875 % | 6 | 3 | 3 | 38 t | ninguno | ×1.00 |
-| Normal | .50 | 0 | 9.5 % | 8 | 4 | 4 | 30 t | 1/600 t | ×.75 |
-| Hard | .75 | +5 | 18.875 % | 10 | 5 | 5 | 23 t | 2/300 t | ×.50 |
+| Easy, superficie | .25 | −5 | 0 % | 6 | 4 | 2 | 25 t | ninguno | ×1.50 |
+| Normal, superficie | .50 | 0 | 9 % | 32 | 11 | 8 | 20 t | 4, hasta 6, cada 150 t | ×1.00 |
+| Hard, superficie | .75 | +5 | 30 % | 64 | 23 | 23 | 15 t | 13, hasta 10, cada 100 t | ×.35 |
+| Hard, peligro completo | 1.00 | +10 | 60 % | 96 | 34 | 34 | 10 t | 20, hasta 10, cada 80 t | ×.15 |
 
-Hard + noche + oscuridad + cueva alcanza hazard `1`: ajuste adaptativo `+10`, chance `32 %` por
-scan, cap `12`, mínimo `5`, cinco melee, replan cada `15` ticks, reposición de hasta tres cada `240`
-ticks y cooldown `×.25`. Son techos de política; el Threat Budget, governor, terreno y cap local
-pueden producir menos miembros. El inicio automático todavía exige noche u oscuridad por defecto.
+`hardMaxMobs=96` es el techo concurrente por defecto y el validador admite personalizarlo hasta
+`128`; `maxNearbyHostiles=160` es una barrera local adicional. Son techos de política: Threat Budget,
+governor, grupo, terreno, chunks, rutas y costes pueden producir menos miembros. Aunque la tabla
+muestre la chance de superficie, el inicio automático todavía exige noche u oscuridad por defecto.
+
+El efecto de “cientos” es acumulativo: una escena extrema puede comenzar con decenas, alcanzar hasta
+96 concurrentes y reponer bajas durante diez oleadas. No se mantienen cientos de pathfinders a la
+vez; sí pueden atravesar el asedio cientos de cuerpos si la composición y el budget de por vida lo
+permiten.
 
 ## Overrides de threat
 
@@ -146,19 +155,21 @@ retención.
 
 ### `/threatdirector hud [player]`
 
-Consulta si el HUD está `activado` u `oculto`. Consultar la preferencia de otro requiere OP2.
+Requiere OP2. Consulta si el HUD administrativo está `activado` u `oculto`. La variante sin jugador
+necesita un emisor dentro del juego; la consola debe indicar un objetivo conectado.
 
 ### `/threatdirector hud on|off [player]`
 
-Cada jugador puede mostrar u ocultar su barra sin ser OP. Modificar a otro requiere OP2.
+Requiere OP2 incluso para la barra propia. Un jugador sin permiso no recibe bossbar y no puede usar
+ninguna rama `hud`; concederle OP2 lo vuelve elegible en el siguiente refresco.
 
 Ocultarla retira el `ServerBossBar` del cliente, pero no detiene intensity, threat, encuentros ni IA,
 y no afecta a otros miembros del grupo. La preferencia dura la sesión del servidor, incluso tras una
 desconexión, pero se restablece al reiniciar.
 
-Los espectadores no reciben barra. Al volver a un modo no espectador reaparece en el siguiente
-refresco si la preferencia está activa. El HUD usa paquetes bossbar vanilla, se sincroniza cada 10
-ticks y no necesita overlay o paquete personalizado.
+Los no operadores y los espectadores no reciben barra. Al recuperar OP2 o volver a un modo no
+espectador reaparece en el siguiente refresco si la preferencia está activa. El HUD usa paquetes
+bossbar vanilla, se sincroniza cada 10 ticks y no necesita overlay o paquete personalizado.
 
 ## Crear y terminar encuentros
 
@@ -173,8 +184,9 @@ selección automática del miembro preferido. No omite las salvaguardas de la se
 Sin override toma `max(55, director.minimumIntensity, intensity actual)` como base y después aplica
 presión contextual; Easy puede reducir la cifra final y Hard aumentarla. Con override usa exactamente
 el valor solicitado; por eso uno inferior a 35 normalmente no financia el quorum. Con los defaults
-v2 de `VANILLA_PLUS`, Hard oscuro puede llegar al hard cap de 12 y mantener presión mediante hasta
-cuatro oleadas, de hasta tres integrantes cada una, sin superar ese límite concurrente.
+schema 3, Hard tiene cap `64` y mínimo `23` en superficie; con peligro completo alcanza cap `96` y
+mínimo `34`. Las oleadas son de `13/20` miembros respectivamente, hasta diez, sin superar el cap
+concurrente ni el budget vitalicio.
 
 Las oleadas son reposiciones seguras, no mobs adicionales por encima del cap. Solo se intentan en
 Engaging o Climax, con al menos dos miembros vivos, governor 0–4, intervalo cumplido, milli-threat y
@@ -244,14 +256,14 @@ Con defaults, el objetivo debe estar en Overworld, fuera del radio de 128 bloque
 menos 50 % de salud y sin una muerte en los últimos 12 000 ticks.
 
 La formación forzada usa una slice administrativa independiente del allowance y del deadline global
-del tick: `max(performance.maxPlannerOperationsPerTick, tactical.maxCandidatesPerSnapshot)`, 48
-operaciones con `VANILLA_PLUS`, dentro de una ventana propia acotada de al menos 25 ms. No omite
+del tick: `max(performance.maxPlannerOperationsPerTick, tactical.maxCandidatesPerSnapshot)`, 192
+operaciones con `VANILLA_PLUS`, dentro de una ventana propia acotada de al menos 250 ms. No omite
 ninguna salvaguarda de entidades, chunks, rutas o caps. Los inicios automáticos y las oleadas sí
-comparten el planner global de `3500 µs/48 ops` por defecto.
+comparten el planner global de `20000 µs/192 ops` por defecto.
 
 El reclutamiento natural ocurre antes de generar el déficit. `doMobSpawning=false` bloquea mobs
-nuevos, no entidades elegibles ya existentes. Los creepers dirigidos están desactivados por defecto;
-con `mobGriefing=true` tampoco se recluta uno natural sin opt-in.
+nuevos, no entidades elegibles ya existentes. En schema 3 los creepers dirigidos están habilitados;
+su explosión continúa bajo las reglas vanilla y `mobGriefing`.
 
 ## Diagnóstico táctico
 
@@ -286,10 +298,10 @@ siguen gastados: una baja no financia gratis a su reemplazo. Una oleada debe pag
 el `restante` del budget vitalicio, que incorpora la reserva. Solo un intento que se revierte antes
 de quedar comprometido libera sus asignaciones.
 
-Con los defaults, los caps concurrentes por intensity son `0` bajo 35, `6` desde 35, `9` desde 60 y
-`12` desde 85. El grupo puede escalarlos hasta el hard cap; la presión fija su techo contextual, y
-costes/rendimiento pueden reducir la población financiable o agotar la reserva antes de cuatro
-oleadas.
+Con los defaults schema 3, los caps concurrentes por intensity son `0` bajo 35, `24` desde 35, `72`
+desde 60 y `96` desde 85. El grupo puede escalarlos sin superar el hard cap; la presión fija además
+su techo contextual, y costes/rendimiento pueden reducir la población financiable o agotar la
+reserva antes de diez oleadas.
 
 ## BreachPlanner de solo lectura
 
@@ -304,7 +316,10 @@ Puede denegar por intensity, fase, claim, spawn, dureza, contenedor, block entit
 lava, presupuesto o ruta insegura.
 
 Claims conocidos sin adapter responden `UNKNOWN` y fallan cerrado. Incluso `WOULD_BREACH` significa
-“sería candidato”; el MVP no realiza la acción.
+“sería candidato”: este comando y `BreachPlanner` no realizan la acción. Es independiente de la
+habilidad de un zombie Hard, que puede romper como máximo una obstrucción apropiada para su
+herramienta por intento, sin drops, y solo con `mobGriefing=true`, chunk cargado, world border,
+spawn seguro y autorización `UNPROTECTED` del servicio de claims.
 
 ## Configuración y diagnóstico del servidor
 
@@ -318,11 +333,16 @@ controladores activos retienen principalmente su snapshot; límites globales com
 rendimiento y cooldown final siguen la configuración vigente. `enabled=false` limpia encuentros y HUD
 en el siguiente tick.
 
-Defaults v2 de `VANILLA_PLUS`: scan `60` ticks, chance base `.04`, cooldown `3600–7200`, población
-`3/8/12` (mínimo/cap normal/hard cap), cap local `24`, `32` candidatos, `4` intentos de path por mob,
-replan `30`, melee base `3`, planner `3500 µs/48 ops` y umbrales MSPT
-`40/48/56/65/80/100`. Threat Budget permite caps por banda de `6/9/12`. Un v1 intacto adopta estos
-defaults; un v1 personalizado conserva sus valores y solo migra el schema a 2.
+Defaults schema 3 de `VANILLA_PLUS`: scan `40` ticks, chance base `.06`, cooldown `1200–2400`,
+población configurada `4/32/96` (mínimo/base/hard cap), cap local `160`, distancias de spawn `32–64`,
+`64` candidatos, `5` intentos de path por mob, replan `20`, melee base `4`, planner
+`20000 µs/192 ops` y umbrales MSPT `45/55/70/90/120/160`. Threat Budget permite caps por banda de
+`24/72/96`; la presión Hard transforma el techo base en `64–96`. El validador permite
+`hardMaxMobs <= 128`.
+
+Un schema 1 o 2 que coincida exactamente con su preset legado adopta todos estos defaults. Una
+configuración antigua personalizada conserva secciones y valores y migra el número a schema 3; si
+las invariantes actuales la rechazan, continúa activa la última snapshot válida.
 
 ### `/threatdirector integrations`
 
@@ -364,7 +384,7 @@ presupuesto.
 
 ### `/threatdirector preset`
 
-Muestra el preset activo, actualmente `VANILLA_PLUS` en el MVP.
+Muestra el preset activo, actualmente `VANILLA_PLUS` en 0.3.0.
 
 ### `/threatdirector telemetry`
 
@@ -399,12 +419,11 @@ fuerza un flush ni activa telemetría. La telemetría es local, no usa red y est
 | Breach `target_claim_unknown` | Claim sin adapter confiable | UNKNOWN falla cerrado |
 | Breach `intensity_too_low` | Intensity bajo el mínimo | Consultar `intensity` y `threat` |
 
-Los tres mensajes de la captura provenían de los defaults v1 de `VANILLA_PLUS`: cuatro operaciones
-globales se consumían antes de que el comando formara la población; los niveles 5/6 bloqueaban incluso
-la ruta de prueba; y cualquier intento que terminara con menos de tres miembros revertía lo
-reclutado/generado. Con los defaults v2 de `VANILLA_PLUS`, la configuración intacta migra a 48
-operaciones, reclutamiento reserva trabajo para el spawn, se contabilizan las operaciones realmente
-usadas y los comandos OP reciben una slice acotada propia.
+Las instalaciones antiguas podían agotar cuatro o 48 operaciones globales antes de que el comando
+formara la población; los niveles 5/6 bloqueaban incluso la ruta de prueba y cualquier intento por
+debajo del quorum revertía lo reclutado/generado. Schema 3 eleva el default a 192 operaciones,
+reserva trabajo para el spawn, contabiliza el uso real y concede a comandos OP una slice acotada
+propia de 192 operaciones y 250 ms.
 El governor continúa bloqueando niveles 5/6 por seguridad, pero ahora `performance reset` permite
 abrir un warmup explícito para degradación ordinaria. La emergencia crítica sigue activa durante ese
 periodo. El rollback de quorum continúa deliberadamente: evita crear “media horda” sin rutas y deja
@@ -462,8 +481,9 @@ Después de crear una escena con threat alto, consulte el ledger antes y despué
 Mantenga al menos dos mobs dirigidos vivos y permita que uno vea al objetivo primario a 48 bloques o
 menos. Derrote uno, permanezca en Engaging o pase a Climax y espere el intervalo contextual. Searching
 no genera reposiciones. Tras la baja, `mobs retirados` aumenta sin aumentar `restante`; si se forma una
-oleada, `mobs activos` vuelve a crecer y `restante` baja. Con los defaults de `VANILLA_PLUS`, el cap
-concurrente nunca supera 12 y la reserva vitalicia puede agotarse antes de completar cuatro oleadas.
+oleada, `mobs activos` vuelve a crecer y `restante` baja. En Hard schema 3, superficie usa cap `64`,
+oleadas de `13` y 100 ticks; peligro completo usa cap `96`, oleadas de `20` y 80 ticks. En ambos casos
+hay como máximo diez oleadas y la reserva vitalicia puede agotarse antes.
 
 ### Grupo multijugador
 
@@ -474,8 +494,9 @@ Con dos jugadores dentro de `multiplayer.groupRadius`:
 /threatdirector scene engaging JugadorPrimario
 ```
 
-El secundario debe ver `GRUPO`. En su cliente, `threat` muestra lo compartido, `intensity` su
-diagnóstico personal y `hud off` solo oculta su propia barra.
+Si el secundario es OP2 debe ver `GRUPO`; sin OP2 no recibe barra. En su cliente, `threat` muestra lo
+compartido e `intensity` su diagnóstico personal. Solo un operador puede usar `hud off` para ocultar
+su propia barra.
 
 ### Safeguards
 
@@ -510,10 +531,11 @@ Threat Director es server-sided:
 
 - En dedicado, instale Threat Director y Fabric API en el servidor.
 - En singleplayer, instálelos en la instancia del anfitrión: el mundo usa un servidor integrado.
-- Al abrir por LAN, el anfitrión ejecuta el director. Los invitados reciben bossbar y efectos mediante
-  protocolo vanilla; Threat Director no exige overlay ni canal cliente propio.
-- Dentro de un grupo LAN elegible, el anfitrión tiene prioridad como ancla aunque un invitado tenga
-  más equipo. Un host inelegible no salta salvaguardas; entonces otro miembro puede ser primario.
+- Al abrir por LAN, el anfitrión ejecuta el director. Los invitados reciben entidades, movimiento y
+  efectos mediante protocolo vanilla; solo los invitados OP2 reciben la bossbar administrativa.
+  Threat Director no exige overlay ni canal cliente propio.
+- En LAN, solo el anfitrión puede ser ancla automática aunque un invitado tenga más equipo. Si el host
+  es inelegible no se elige al invitado como reemplazo automático; se espera otro scan elegible.
 - Esta prioridad solo afecta la selección automática. `start <player>` y `scene <state> <player>`
   respetan el objetivo explícito del OP. En dedicado se conserva el ranking por power y UUID.
 - Otros mods del modpack pueden imponer sus propios requisitos de cliente.
@@ -533,4 +555,5 @@ threatdirector performance reset
 threatdirector config reload
 ```
 
-Los objetivos deben estar conectados. El MVP no conserva controladores ni overrides tras reiniciar.
+Los objetivos deben estar conectados. La versión 0.3.0 no conserva controladores ni overrides tras
+reiniciar.

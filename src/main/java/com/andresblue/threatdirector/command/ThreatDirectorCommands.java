@@ -232,6 +232,7 @@ public final class ThreatDirectorCommands {
     private static LiteralArgumentBuilder<ServerCommandSource> hudCommand(
             Supplier<Optional<ThreatDirectorRuntime>> runtimeSupplier) {
         return CommandManager.literal("hud")
+                .requires(source -> source.hasPermissionLevel(2))
                 .executes(context -> hudStatus(
                         runtime(context.getSource(), runtimeSupplier),
                         context.getSource(),

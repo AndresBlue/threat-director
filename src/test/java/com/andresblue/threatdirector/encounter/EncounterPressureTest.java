@@ -33,28 +33,42 @@ class EncounterPressureTest {
         assertTrue(normal.effectiveIntensity() < hard.effectiveIntensity());
         assertTrue(easy.encounterChance() < normal.encounterChance());
         assertTrue(normal.encounterChance() < hard.encounterChance());
-        assertEquals(0.03875, easy.encounterChance(), 1.0e-9);
-        assertEquals(0.095, normal.encounterChance(), 1.0e-9);
-        assertEquals(0.18875, hard.encounterChance(), 1.0e-9);
+        assertEquals(0.0, easy.encounterChance(), 1.0e-9);
+        assertEquals(0.09, normal.encounterChance(), 1.0e-9);
+        assertEquals(0.30, hard.encounterChance(), 1.0e-9);
         assertTrue(easy.mobCap() < normal.mobCap());
         assertTrue(normal.mobCap() < hard.mobCap());
+        assertEquals(6, easy.mobCap());
+        assertEquals(32, normal.mobCap());
+        assertEquals(64, hard.mobCap());
         assertTrue(easy.minimumMobs() < normal.minimumMobs());
         assertTrue(normal.minimumMobs() < hard.minimumMobs());
+        assertEquals(4, easy.minimumMobs());
+        assertEquals(11, normal.minimumMobs());
+        assertEquals(23, hard.minimumMobs());
         assertTrue(easy.meleeAttackers() < normal.meleeAttackers());
         assertTrue(normal.meleeAttackers() < hard.meleeAttackers());
-        assertEquals(3, easy.meleeAttackers());
-        assertEquals(4, normal.meleeAttackers());
-        assertEquals(5, hard.meleeAttackers());
+        assertEquals(2, easy.meleeAttackers());
+        assertEquals(8, normal.meleeAttackers());
+        assertEquals(23, hard.meleeAttackers());
         assertTrue(easy.replanIntervalTicks() > normal.replanIntervalTicks());
         assertTrue(normal.replanIntervalTicks() > hard.replanIntervalTicks());
         assertTrue(easy.reinforcementSize() < normal.reinforcementSize());
         assertTrue(normal.reinforcementSize() < hard.reinforcementSize());
+        assertEquals(0, easy.reinforcementSize());
+        assertEquals(4, normal.reinforcementSize());
+        assertEquals(13, hard.reinforcementSize());
         assertTrue(normal.reinforcementIntervalTicks() > hard.reinforcementIntervalTicks());
+        assertEquals(150, normal.reinforcementIntervalTicks());
+        assertEquals(100, hard.reinforcementIntervalTicks());
         assertTrue(easy.cooldownMultiplier() > normal.cooldownMultiplier());
         assertTrue(normal.cooldownMultiplier() > hard.cooldownMultiplier());
-        assertEquals(1.0, easy.cooldownMultiplier());
-        assertEquals(0.75, normal.cooldownMultiplier());
-        assertEquals(0.50, hard.cooldownMultiplier());
+        assertEquals(1.5, easy.cooldownMultiplier());
+        assertEquals(1.0, normal.cooldownMultiplier());
+        assertEquals(0.35, hard.cooldownMultiplier());
+        assertEquals(0, easy.maximumReinforcementWaves());
+        assertEquals(6, normal.maximumReinforcementWaves());
+        assertEquals(10, hard.maximumReinforcementWaves());
         assertEquals("easy:surface", easy.zoneLabel());
         assertEquals("normal:surface", normal.zoneLabel());
         assertEquals("hard:surface", hard.zoneLabel());
@@ -104,8 +118,12 @@ class EncounterPressureTest {
         assertEquals(20.0, forced.effectiveIntensity());
         assertTrue(adaptive.effectiveIntensity() > forced.effectiveIntensity());
         assertEquals(config.encounter().hardMaxMobs(), forced.mobCap());
-        assertEquals(3, forced.reinforcementSize());
-        assertEquals(0.25, forced.cooldownMultiplier());
+        assertEquals(34, forced.minimumMobs());
+        assertEquals(34, forced.meleeAttackers());
+        assertEquals(20, forced.reinforcementSize());
+        assertEquals(10, forced.maximumReinforcementWaves());
+        assertEquals(80, forced.reinforcementIntervalTicks());
+        assertEquals(0.15, forced.cooldownMultiplier());
     }
 
     @Test
@@ -123,6 +141,7 @@ class EncounterPressureTest {
         assertEquals(0, pressure.minimumMobs());
         assertEquals(0, pressure.meleeAttackers());
         assertEquals(0, pressure.reinforcementSize());
+        assertEquals(0, pressure.maximumReinforcementWaves());
         assertEquals(0, pressure.reinforcementIntervalTicks());
         assertEquals("peaceful:night+dark+cave", pressure.zoneLabel());
     }

@@ -27,7 +27,11 @@ public final class ThreatHudService implements AutoCloseable {
             EncounterManager encounters) {
         Set<UUID> onlinePlayers = new HashSet<>();
         for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-            if (player.isSpectator() || hiddenPlayers.contains(player.getUuid())) {
+            boolean operator = server.getPlayerManager().isOperator(player.getGameProfile());
+            if (!shouldDisplay(
+                    operator,
+                    player.isSpectator(),
+                    !hiddenPlayers.contains(player.getUuid()))) {
                 continue;
             }
             onlinePlayers.add(player.getUuid());
@@ -136,6 +140,10 @@ public final class ThreatHudService implements AutoCloseable {
 
     public boolean isEnabled(UUID playerId) {
         return !hiddenPlayers.contains(playerId);
+    }
+
+    static boolean shouldDisplay(boolean operator, boolean spectator, boolean preferenceEnabled) {
+        return operator && !spectator && preferenceEnabled;
     }
 
     @Override

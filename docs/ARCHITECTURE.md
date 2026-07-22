@@ -1,44 +1,47 @@
-# Threat Director — arquitectura del MVP
+# Threat Director — arquitectura de la versión 0.3.0
 
 ## Estado y plataforma
 
 El repositorio apunta a Minecraft 1.20.1 con Fabric Loader 0.18.4, Yarn
 1.20.1+build.10, Fabric API 0.92.11+1.20.1 y bytecode Java 17. La máquina de
 desarrollo inspeccionada dispone de Temurin 21, que compila con `--release 17`.
-El MVP es autoritativo del servidor: no necesita entrypoint cliente, paquetes personalizados ni
+La versión 0.3.0 es autoritativa del servidor: no necesita entrypoint cliente, paquetes personalizados ni
 una interfaz gráfica. En dedicado y en LAN basta con instalarlo en el lado que aloja el servidor;
-los clientes remotos de Minecraft 1.20.1 pueden conectarse sin Threat Director y reciben el HUD
-mediante la bossbar vanilla. En una partida integrada, el host sí necesita el mod porque también
-ejecuta el servidor.
+los clientes remotos de Minecraft 1.20.1 pueden conectarse sin Threat Director. Solo los operadores
+OP2 reciben el HUD mediante la bossbar vanilla. En una partida integrada, el host sí necesita el mod
+porque también ejecuta el servidor.
 
 La configuración descrita aquí ya tiene modelo, validación y carga en
 `com.andresblue.threatdirector.config`. El enlace de `ConfigManager` con
 `ThreatDirectorMod` se realiza en el bootstrap del runtime; se mantiene fuera del paquete de
 configuración para que el cargador pueda probarse sin iniciar Minecraft.
 
-## Objetivo del MVP
+## Alcance de 0.3.0
 
-El primer hito jugable coordina grupos pequeños de zombies, esqueletos, arañas y creepers sin
-modificar sus estadísticas. Incluye:
+El runtime coordina grupos vanilla y añade capacidades server-side por dificultad. Incluye:
 
 - Adventure Intensity básica y suavizada.
-- Threat Budget y poblaciones contextuales: máximo normal 8 y máximo difícil 12 por defecto.
+- Threat Budget y poblaciones contextuales: base configurada 32, cap Hard contextual `64–96`, hard
+  cap por defecto 96 y límite validable 128.
 - Roles Vanguard, Flanker, Harasser e Interceptor.
 - Sectores terrestres, Pinza y Cierre de salida.
 - Fases Stalking, Positioning, Engaging, Searching, Climax, Retreating y Relief.
 - Límites estrictos de tiempo, entidades y pathfinding.
-- BreachPlanner estrictamente simulado.
+- BreachPlanner estrictamente simulado y un guard separado para cambios reales de mobs.
 - Comandos administrativos y telemetría local opcional.
+- Perfiles Easy vanilla, Normal parcial y Hard Apocalypse para familias hostiles vanilla.
 
-No forman parte del MVP la rotura real de bloques, claims, mobs externos, Prominence II, élites,
-vuelo, combate acuático, overlay cliente, PvPvE ni reconocimiento avanzado de estructuras.
+No forman parte de 0.3.0 los mobs externos, adapters concretos de Prominence II, élites, overlay
+cliente, PvPvE ni reconocimiento avanzado de estructuras. `BreachPlanner` no ejecuta roturas, pero
+los zombies Hard sí pueden retirar una obstrucción compatible mediante `MobGriefingGuard`; las
+telarañas Hard usan el mismo guard.
 
 ## Capas
 
 ```text
 Fabric lifecycle/events
-        ↓
-ThreatDirectorRuntime
+        ↓                         ↓
+ThreatDirectorRuntime      módulos de dificultad/mixins
         ↓                       ↓
 PlayerObservationService ── ThreatHudService ── ServerBossBar vanilla
         ↓
@@ -51,6 +54,8 @@ PopulationService ── GroupBlackboard ── planners tácticos
 MobOrderStore
         ↓
 Goals temporales ── navegación y ataques vanilla
+        ↓
+MobGriefingGuard ── gamerule + claims + chunk/border + spawn seguro
 ```
 
 Las dependencias avanzan hacia abajo. Los evaluadores, patrones y adapters publican resultados
@@ -83,7 +88,7 @@ penalización  0..30
 ```
 
 La intensidad cruda se limita a 0..100 y se suaviza con EMA. Una banda no cambia hasta superar la
-histéresis. En el MVP, equipo, salud, absorción, inventario y contexto se capturan cada 100 ticks;
+histéresis. En 0.3.0, equipo, salud, absorción, inventario y contexto se capturan cada 100 ticks;
 una caché invalidada por eventos de equipo es una optimización posterior.
 
 `PlayerDirectorState` mantiene intensidad, banda, memoria reciente, muerte y cooldown; el mapa de
@@ -101,11 +106,12 @@ Un override administrativo vive separado de la intensidad adaptativa. `intensity
 efectivo al director y al HUD, mientras el muestreo continúa actualizando `adaptiveIntensity()`; al
 limpiar el override no hay que reconstruir ni falsear el historial observado.
 
-`ThreatHudService` mantiene un `ServerBossBar` individual por UUID no espectador. Reconcilia join,
-disconnect y respawn desde el hilo del servidor, y elimina todas las barras al desactivar o cerrar el
-runtime. Fuera de combate muestra la intensidad individual; los participantes secundarios de un
-encuentro muestran la intensidad efectiva del objetivo primario con la marca `GRUPO`. El cliente
-recibe paquetes bossbar vanilla: no existe entrypoint gráfico ni protocolo personalizado.
+`ThreatHudService` mantiene un `ServerBossBar` individual únicamente por UUID operador y no
+espectador. Reconcilia join, cambios de permiso, disconnect y respawn desde el hilo del servidor, y
+elimina todas las barras al desactivar o cerrar el runtime. Fuera de combate muestra la intensidad
+individual; los participantes OP secundarios de un encuentro muestran la intensidad efectiva del
+objetivo primario con la marca `GRUPO`. El cliente recibe paquetes bossbar vanilla: no existe
+entrypoint gráfico ni protocolo personalizado. Todas las ramas del comando `hud` requieren OP2.
 
 ### Encuentros
 
@@ -113,9 +119,10 @@ recibe paquetes bossbar vanilla: no existe entrypoint gráfico ni protocolo pers
 pertenezca a dos controladores. Los controladores almacenan UUID y resuelven entidades en el mundo;
 no conservan referencias después de unload.
 
-En un servidor integrado abierto a LAN, el host es el objetivo primario preferido durante el scan
-automático cuando comparte grupo con otros jugadores elegibles. Fuera de ese caso se prefiere el
-jugador con mayor potencia observada y se usa el UUID como desempate determinista.
+En un servidor integrado abierto a LAN, el scan automático solo considera al host como posible
+ancla. Los clientes remotos pueden integrar su grupo o recibir un objetivo administrativo explícito,
+pero nunca originan por sí solos un encuentro automático. En dedicado se prefiere el jugador con
+mayor potencia observada y se usa el UUID como desempate determinista.
 
 La máquina de estados principal es:
 
@@ -130,11 +137,12 @@ Cada transición registra estado anterior, nuevo, causa, target, encuentro, tick
 presupuesto restante. Cambio de dimensión, logout, grupo inviable, distancia excesiva, pérdida de
 contacto y nivel de rendimiento 6 terminan el encuentro de forma segura.
 
-Durante `ENGAGING`, `SEARCHING` o `CLIMAX`, la presión puede solicitar hasta cuatro oleadas de
-refuerzo. Cada oleada vuelve a pasar por Threat Budget, ownership global, población segura, cap
-contextual, límite difícil, presupuesto de planner y gobernador; necesita al menos dos miembros
-vivos y nunca garantiza que aparecerá si no existe una población válida. Telemetría y logs incluyen
-número de oleada, zona y peligro.
+Durante `ENGAGING` o `CLIMAX`, la presión Hard puede solicitar hasta diez oleadas de refuerzo. En
+superficie son hasta 13 miembros cada 100 ticks; con peligro completo, hasta 20 cada 80 ticks. Cada
+oleada vuelve a pasar por Threat Budget, ownership global, población segura, cap contextual, límite
+difícil, presupuesto de planner y gobernador; necesita al menos dos miembros vivos y percepción
+confirmada del objetivo, y nunca garantiza que aparecerá si no existe una población válida.
+Telemetría y logs incluyen número de oleada, zona y peligro.
 
 `GroupBlackboard` contiene solamente información parcial: última posición vista, confianza,
 velocidad reciente, sectores reservados, slots cuerpo a cuerpo y fallos de ruta. La confianza
@@ -143,7 +151,7 @@ decae si ningún miembro ve al jugador.
 ### Población y presupuesto
 
 Se reclutan primero mobs naturales sin nombre, no persistentes, libres de otro encuentro y sin un
-combate ajeno. Si faltan miembros, se buscan posiciones entre 28 y 48 bloques que:
+combate ajeno. Si faltan miembros, se buscan posiciones entre 32 y 64 bloques que:
 
 - estén en chunks cargados y dentro del world border;
 - cumplan restricciones vanilla de spawn, luz, suelo y colisión;
@@ -151,31 +159,30 @@ combate ajeno. Si faltan miembros, se buscan posiciones entre 28 y 48 bloques qu
 - respeten Peaceful, `doMobSpawning` y el límite local de hostiles.
 
 Costes iniciales: zombie 1.0, skeleton 1.3, spider 1.1 y creeper 1.8. Reclutados y generados
-consumen el mismo presupuesto. La generación de creepers por el director está desactivada de forma
-predeterminada. Cuando `mobGriefing=true`, tampoco se reclutan creepers naturales salvo opt-in
-explícito; con `mobGriefing=false` sí son elegibles porque su explosión vanilla no rompe terreno.
+consumen el mismo presupuesto. Schema 3 habilita la generación dirigida y el reclutamiento de
+creepers; sus explosiones siguen siendo vanilla y obedecen `mobGriefing`.
 
-El schema 2 configura `minMobs=3`, `maxMobs=8`, `hardMaxMobs=12` y
-`maxNearbyHostiles=24`. La presión interpola el cap entre esos límites; el escalado multijugador y
-las oleadas siguen sujetos al Threat Budget y al máximo difícil. La validación permite personalizar
-`hardMaxMobs` hasta un máximo absoluto de 16.
+El schema 3 configura `minMobs=4`, `maxMobs=32`, `hardMaxMobs=96` y
+`maxNearbyHostiles=160`. Hard interpola el cap contextual entre 64 en superficie y 96 con peligro
+completo; sus mínimos son 23/34 y sus slots melee 23/34. El escalado multijugador y las oleadas
+siguen sujetos al Threat Budget y al máximo difícil. La validación permite personalizar
+`hardMaxMobs` hasta un máximo absoluto de 128.
 
 ### Táctica e IA vanilla
 
 El entorno inmediato se representa mediante diez sectores relativos a la mirada, la altura, la
-ruta de escape, la cobertura y la reserva. Una snapshot produce como máximo 32 candidatos en un
-anillo configurable de 10 a 18 bloques por defecto. Primero se hacen comprobaciones baratas y
-luego se permiten cuatro intentos base de path por mob; con peligro de 0.70 o más puede autorizarse
-un quinto intento contextual, siempre dentro del presupuesto global. La cadencia base de replan es
-30 ticks y la presión la acelera o ralentiza; también se recalcula tras desplazamiento significativo
-o fallo de ruta.
+ruta de escape, la cobertura y la reserva. Una snapshot produce como máximo 64 candidatos en un
+anillo configurable de 12 a 24 bloques por defecto. Primero se hacen comprobaciones baratas y
+luego se permiten como máximo cinco intentos de path por mob, siempre dentro del presupuesto global.
+La cadencia base de replan es 20 ticks y la presión la acelera o ralentiza; también se recalcula tras
+desplazamiento significativo o fallo de ruta.
 
 La predicción de escape combina velocidad reciente y mirada. Pinza requiere sectores opuestos;
 Cierre de salida requiere un Interceptor y un punto adelantado viable. Si el plan falla, el grupo
 retorna a ataque vanilla distribuido.
 
-El único mixin previsto para el MVP es un accessor de `MobEntity.goalSelector` y
-`MobEntity.targetSelector`. Al reclutar una entidad se instalan dos goals:
+El director táctico usa un accessor de `MobEntity.goalSelector` y `MobEntity.targetSelector`. Al
+reclutar una entidad se instalan dos goals:
 
 - movimiento/observación temporal con prioridad inferior a emergencias vanilla;
 - compuerta temporal del target durante Stalking, Positioning y Relief.
@@ -184,16 +191,63 @@ En Engaging se libera la compuerta, se establece el target y los goals vanilla r
 Al retirar la orden, los goals añadidos quedan inactivos. No se reemplaza el árbol de IA, no se
 teletransporta y no se recalcula navegación cada tick.
 
+### Habilidades vanilla por dificultad
+
+Las habilidades se aplican en el servidor a hostiles vanilla cargados, no solo a miembros de un
+encuentro. No registran entidades, efectos, atributos ni paquetes nuevos: combinan goals, tags,
+equipamiento, efectos y movimiento vanilla. `enabled=false` selecciona el comportamiento Easy.
+
+- **Easy:** no añade targeting, buffs ni habilidades y la probabilidad de encuentros automáticos es
+  cero. Los comandos OP aún pueden crear una escena, respetando todas las salvaguardas.
+- **Targeting común:** todos los `Monster` reciben un `ActiveTargetGoal` de 28 bloques en Normal y
+  48 en Hard. El goal se desactiva mientras el tag de ownership indica que el mob está administrado
+  por un encuentro, evitando pelear con `DirectorTargetGateGoal`; en servidor integrado/LAN el
+  predicado solo admite al host como target automático.
+- **Skeletons:** dos `BowAttackGoal` de mayor prioridad amplían el alcance a 24 en Normal y 42 en
+  Hard; el original sigue disponible para Easy. El mixin de `attack` conserva proyectil y sonido
+  vanilla, añade predicción solo desde 12 bloques y usa velocidad/divergencia `1.8/3` en Normal y
+  `2.2/0.25` en Hard (`0.5` de divergencia en corto).
+  Normal tiene 10 % de lentitud; Hard tiene 32 % total, repartido por igual entre lentitud, veneno,
+  náusea y ceguera. El kiting proviene del goal de arco y Hard puede hacer dash hacia atrás con
+  cooldown. Los tags son `threatdirector_apocalypse_skeleton` y
+  `threatdirector_apocalypse_arrow`.
+- **Creepers:** Normal usa multiplicador 1.35 al aproximarse por la espalda y una mecha aleatoria de
+  70–100 % de la vanilla. Hard usa multiplicador 2.0, mecha de 30–100 %, pasos silenciosos y dash
+  acotado; tras 20 ticks bloqueado contra pared, sin línea de visión y a 4.5 bloques puede encenderse
+  solo si `mobGriefing` está activo. La explosión y sus paquetes siguen siendo vanilla.
+- **Zombies:** Normal equipa herramienta o espada con 40 % de probabilidad. Hard usa 85 %, añade
+  pico al pool y escudo con 30 %, puede llamar hasta dos refuerzos con 20 % por evento de daño,
+  cooldown 200 ticks y cap de ocho zombies cercanos. Cada 30 ticks puede intentar retirar un único
+  bloque cargado, sin block entity ni drops, dureza `<=5` y apropiado para su herramienta.
+- **Spiders:** Normal recibe Speed I y Jump Boost I al generarse. Hard recibe Speed II, Jump Boost
+  II, Regeneration I y Strength I; al golpear puede colocar una telaraña cada 100 ticks y al morir
+  intenta generar dos cave spiders vanilla. El tag `threatdirector.spider_hatchling` impide recursión.
+- **Endermen:** al daño de un hostile por un jugador, Normal alerta hasta dos endermen en 12 bloques
+  con 50 % por aliado; Hard alerta hasta seis en 24 bloques. Hard adopta una postura de 1.95 bloques
+  durante combate y, tras 30 ticks de ventaja de pilar, intenta teleport con cooldown 80.
+- **Otras familias:** además del targeting común, Normal/Hard aplican presión temática:
+  brujas/illagers debilitan o coordinan aliados, blazes/ghasts/phantoms reciben impulso de alcance,
+  guardianes aplican fatiga en agua, drowned/husks aplican fatiga/hambre, enjambres comparten target
+  y ravagers/piglin brutes cargan en Hard. La familia residual `OTHER` permanece genérica y no recibe
+  una habilidad temática.
+
+`MobGriefingGuard` es la única autoridad para las roturas de zombie y las telarañas añadidas por el
+mod. Exige `mobGriefing`, runtime activo, chunk cargado, world border, respuesta de claims que permita
+destrucción y, en Overworld, estar fuera de la protección real del spawn. `PROTECTED`, `UNKNOWN` o
+un provider que falla deniegan la acción.
+
 ## Eventos Fabric
 
 - `ServerLifecycleEvents.SERVER_STARTED` y `SERVER_STOPPING`: runtime y cierre.
 - `ServerTickEvents.END_SERVER_TICK`: observación, gobernador, scheduler y encuentros.
+- `ServerEntityEvents.ENTITY_LOAD`: goals de esqueletos y otras familias hostiles, con sets débiles
+  para evitar instalaciones duplicadas tras unload/reload.
 - `CommandRegistrationCallback`: comandos.
 - `ServerLivingEntityEvents.AFTER_DEATH`: bajas y memoria reciente.
 
 Logout, cambio de dimensión, unload y cambios de salud se detectan al resolver UUID y validar el
 estado vivo en cada ciclo del controlador. Fabric API 1.20.1 no dispone de
-`ServerLivingEntityEvents.AFTER_DAMAGE`; el MVP infiere daño sin cancelarlo mediante diferencias de
+`ServerLivingEntityEvents.AFTER_DAMAGE`; 0.3.0 infiere daño sin cancelarlo mediante diferencias de
 salud/absorción y mantiene una comprobación directa de salud crítica en el scheduler.
 
 ## Configuración
@@ -205,14 +259,14 @@ El archivo ausente se crea con JSON UTF-8 formateado mediante escritura temporal
 atómico cuando el sistema de archivos lo soporta. La carga sigue este orden:
 
 1. Parsear a una nueva snapshot.
-2. Si es schema 1, migrar: el preset legado exacto recibe todos los defaults v2; un archivo v1
+2. Si es schema 1 o 2, migrar: un preset legado exacto recibe todos los defaults schema 3; un archivo
    personalizado conserva sus secciones y valores y solo cambia `schemaVersion`.
-3. Validar todas las secciones y relaciones como schema 2.
+3. Validar todas las secciones y relaciones como schema 3.
 4. Reescribir atómicamente el archivo cuando hubo migración.
 5. Publicar la snapshot completa en una asignación `volatile`.
 6. Mantener la última snapshot válida si parseo, migración, validación o escritura fallan.
 
-Las secciones del schema 2 son:
+Las secciones del schema 3 son:
 
 | Sección | Responsabilidad |
 | --- | --- |
@@ -232,7 +286,7 @@ Invariantes de `VANILLA_PLUS`:
 - `simulationOnly` siempre es `true`;
 - adapters externos están desactivados;
 - solo se seleccionan mobs vanilla;
-- el default difícil es 12 mobs y el límite configurable absoluto es 16;
+- el default difícil es 96 mobs y el límite configurable absoluto es 128;
 - cada mob permitido posee un threat cost positivo;
 - distancias, fases y umbrales de rendimiento mantienen orden coherente.
 
@@ -244,7 +298,7 @@ completo con la configuración recargada.
 
 ## Persistencia y telemetría
 
-En el MVP, intensidad, memoria reciente y cooldown viven en memoria y se limpian al reiniciar el
+En 0.3.0, intensidad, memoria reciente y cooldown viven en memoria y se limpian al reiniciar el
 servidor. Los controladores tampoco se serializan: tras un reinicio sus mobs quedan completamente
 en manos de vanilla. Persistir el resumen por UUID mediante `PersistentState` es trabajo de Fase 2.
 
@@ -268,7 +322,8 @@ se recupera más lentamente:
 ```
 
 Además de los umbrales de tick, la configuración reserva un presupuesto global de microsegundos. El
-default v2 comparte 48 operaciones de planner por tick entre población, refuerzos y controladores,
+default schema 3 comparte 192 operaciones y 20 000 microsegundos de planner por tick entre
+población, refuerzos y controladores,
 además de la deadline best-effort y los límites de candidatos y frecuencia. Una consulta de
 pathfinding ya iniciada no puede interrumpirse a mitad de llamada. Nunca se carga un chunk para
 completar una táctica.
@@ -291,8 +346,8 @@ asumir un ID del modpack.
 
 ## Estrategia de pruebas
 
-- El MVP ejecuta JUnit puro para config, intensidad, smoothing, budget, roles, patrones, FSM,
-  compatibilidad, telemetría, simulación de breach y gobernador.
+- La versión 0.3.0 ejecuta JUnit puro para config, intensidad, smoothing, budget, roles, patrones,
+  FSM, compatibilidad, telemetría, simulación de breach, gobernador y políticas de habilidades.
 - Los GameTests de goals, spawn seguro y lifecycle quedan como siguiente nivel de cobertura.
 - El arranque dedicado se prueba con solo Fabric API y Threat Director.
 - Un cliente remoto vanilla, sin el mod, se prueba contra dedicado y contra un host LAN modificado.
@@ -315,14 +370,15 @@ solo publica sus extensiones si `register` termina por completo; una excepción 
 
 ## Riesgos de compatibilidad
 
-| Riesgo | Mitigación del MVP |
+| Riesgo | Mitigación en 0.3.0 |
 | --- | --- |
-| Conflicto con IA de otro mod | Solo cuatro tipos vanilla exactos; goals inactivos sin orden |
-| Pathfinding costoso | Cuatro paths base por mob, uno contextual extra con peligro alto, 48 operaciones globales y planificación espaciada |
-| Spawn injusto | Distancia 28–48, chunks cargados, cono frontal excluido y reglas vanilla |
+| Conflicto con IA de otro mod | Goals acotados por dificultad; la capa táctica queda inactiva sin orden |
+| Pathfinding costoso | Cinco paths base por mob, uno contextual extra con peligro alto, 192 operaciones globales y planificación espaciada |
+| Spawn injusto | Distancia 32–64, chunks cargados, cono frontal excluido y reglas vanilla |
 | Saturación de entidades | Threat Budget, cap local y máximo de controladores |
-| Creepers/griefing | Sin spawn dirigido; con `mobGriefing=true` tampoco se reclutan sin opt-in |
-| Claim desconocido | `UNKNOWN` falla cerrado; breaching real no existe en el MVP |
+| Creepers/griefing | Explosión vanilla bajo `mobGriefing`; coste, cap, spawn seguro y budget siguen activos |
+| Cambios de bloque de mobs | `MobGriefingGuard` centraliza gamerule, claims, chunk/border y spawn seguro |
+| Claim desconocido | `UNKNOWN` falla cerrado para toda acción destructiva añadida por el mod |
 | Adapter roto o ausente | Carga aislada, staging transaccional y fallback vanilla |
 | Reinicio durante encuentro | No se persiste el controlador; los goals quedan sin órdenes y ceden a vanilla |
 | Modpack con JDK/toolchain distinto | JAR Java 17 y dependencias Fabric fijadas por versión |
@@ -330,17 +386,9 @@ solo publica sus extensiones si `register` termina por completo; una excepción 
 Prominence II todavía requiere inventariar sus componentes reales, versiones, atributos, accesorios,
 claims, dimensiones y mobs. No se asume que el modpack posea un único mod ID.
 
-## Plan incremental por commits
+## Evolución posterior
 
-1. `chore: scaffold Fabric 1.20.1 server mod` — wrapper, metadata y entrypoint mínimo.
-2. `feat: add validated Vanilla Plus server config` — JSON atómico, schema y documentación.
-3. `chore: align Fabric 1.20.1 toolchain` — Loader/API/Yarn/Loom/Gradle verificados.
-4. `feat: implement adaptive tactical core` — intensidad, budget, FSM, roles, sectores y patrones.
-5. `feat: add optional integration API and local telemetry` — SPI, claims y NDJSON.
-6. `feat: make vanilla encounters playable` — población, goals, controller, comandos y runtime.
-
-Después del MVP:
-
-1. Fase 2: GameTests, memoria persistente, breaching real protegido, más mobs/patrones y élites.
-2. Fase 3: adapters genéricos de equipo, accesorios, magia, claims y entidades desconocidas.
-3. Fase 4: integración opcional específica de Prominence II y pruebas dentro del modpack completo.
+1. Añadir GameTests y pruebas de arranque dedicadas para mixins, goals y guards destructivos.
+2. Persistir memoria/cooldowns resumidos mediante `PersistentState` sin serializar entidades vivas.
+3. Incorporar adapters genéricos de equipo, accesorios, magia y claims en jars separados.
+4. Inventariar Prominence II por componentes/versiones reales antes de crear una integración opcional.
