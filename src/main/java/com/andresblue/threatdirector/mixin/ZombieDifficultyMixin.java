@@ -3,6 +3,7 @@ package com.andresblue.threatdirector.mixin;
 import com.andresblue.threatdirector.difficulty.DifficultyAbilityPolicy;
 import com.andresblue.threatdirector.difficulty.MinecraftDifficultyProfiles;
 import com.andresblue.threatdirector.difficulty.ZombieDifficultyAbilities;
+import com.andresblue.threatdirector.server.ThreatScaling;
 import net.minecraft.entity.EntityData;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.SpawnReason;
@@ -10,6 +11,7 @@ import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.mob.ZombieEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.world.LocalDifficulty;
 import net.minecraft.world.ServerWorldAccess;
 import org.spongepowered.asm.mixin.Mixin;
@@ -25,6 +27,24 @@ public abstract class ZombieDifficultyMixin {
     private long threatdirector$nextReinforcementTick;
     @Unique
     private long threatdirector$nextBlockBreakTick;
+
+    @Inject(method = "tickMovement", at = @At("HEAD"))
+    private void threatdirector$maintainStickyAggro(CallbackInfo callback) {
+        ZombieEntity self = (ZombieEntity) (Object) this;
+        if (!(self.getWorld() instanceof ServerWorld)
+                || ZombieDifficultyAbilities.maintainAggro(self)) {
+            return;
+        }
+        if (self.getCommandTags().contains(ZombieDifficultyAbilities.AGGRO_TAG)
+                || !(self.getTarget() instanceof ServerPlayerEntity player)
+                || !player.isAlive()
+                || ThreatScaling.playerThreat(player) < ThreatScaling.ACTIVATION_THREAT) {
+            return;
+        }
+        // Roll once at first contact, then make the target permanent even if the roll fails.
+        ZombieDifficultyAbilities.tryTriggerHorde(self, player);
+        ZombieDifficultyAbilities.markAggro(self, player);
+    }
 
     @Inject(method = "initialize", at = @At("RETURN"))
     private void threatdirector$equipForDifficulty(ServerWorldAccess world, LocalDifficulty difficulty,
@@ -43,11 +63,17 @@ public abstract class ZombieDifficultyMixin {
         }
         DifficultyAbilityPolicy.ZombieRules rules = MinecraftDifficultyProfiles.forWorld(world).zombie();
         long now = world.getTime();
+        LivingEntity attacker = source.getAttacker() instanceof LivingEntity living ? living : null;
+        if (attacker instanceof ServerPlayerEntity player
+                && ThreatScaling.playerThreat(player) >= ThreatScaling.ACTIVATION_THREAT) {
+            ZombieDifficultyAbilities.alertNearby(self, player);
+            ZombieDifficultyAbilities.tryTriggerHorde(self, player);
+            ZombieDifficultyAbilities.markAggro(self, player);
+        }
         if (rules.maxReinforcements() == 0 || now < threatdirector$nextReinforcementTick) {
             return;
         }
         threatdirector$nextReinforcementTick = now + rules.reinforcementCooldownTicks();
-        LivingEntity attacker = source.getAttacker() instanceof LivingEntity living ? living : null;
         ZombieDifficultyAbilities.tryCallReinforcements(self, attacker);
     }
 

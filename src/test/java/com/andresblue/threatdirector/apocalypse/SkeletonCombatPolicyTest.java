@@ -106,9 +106,21 @@ class SkeletonCombatPolicyTest {
     @Test
     void difficultyControlsRangeWithoutChangingVanillaCadence() {
         assertEquals(15.0, SkeletonCombatPolicy.rangedAttackRange(1), EPSILON);
-        assertEquals(24.0, SkeletonCombatPolicy.rangedAttackRange(2), EPSILON);
-        assertEquals(42.0, SkeletonCombatPolicy.rangedAttackRange(3), EPSILON);
+        assertEquals(64.0, SkeletonCombatPolicy.rangedAttackRange(2), EPSILON);
+        assertEquals(128.0, SkeletonCombatPolicy.rangedAttackRange(3), EPSILON);
         assertEquals(40, SkeletonCombatPolicy.rangedAttackInterval(2));
         assertEquals(20, SkeletonCombatPolicy.rangedAttackInterval(3));
+    }
+
+    @Test
+    void effectDurationsAreBoundedAroundEightSeconds() {
+        assertEquals(20, SkeletonCombatPolicy.effectDurationTicks(0.0));
+        assertEquals(600, SkeletonCombatPolicy.effectDurationTicks(1.0));
+        double sum = 0.0;
+        for (int i = 0; i < 10_000; i++) {
+            sum += SkeletonCombatPolicy.effectDurationTicks((i + 0.5) / 10_000.0);
+        }
+        double meanSeconds = sum / 10_000.0 / 20.0;
+        assertTrue(meanSeconds > 7.0 && meanSeconds < 9.0);
     }
 }

@@ -3,11 +3,13 @@ package com.andresblue.threatdirector.mixin;
 import com.andresblue.threatdirector.difficulty.DifficultyAbilityPolicy;
 import com.andresblue.threatdirector.difficulty.EndermanDifficultyAbilities;
 import com.andresblue.threatdirector.difficulty.MinecraftDifficultyProfiles;
+import com.andresblue.threatdirector.server.ThreatScaling;
 import net.minecraft.entity.EntityDimensions;
 import net.minecraft.entity.EntityPose;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.mob.EndermanEntity;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.server.network.ServerPlayerEntity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.gen.Invoker;
@@ -36,7 +38,12 @@ public abstract class EndermanDifficultyMixin {
         }
         DifficultyAbilityPolicy.EndermanRules rules = MinecraftDifficultyProfiles.forWorld(world).enderman();
         LivingEntity target = self.getTarget();
-        boolean combatPosture = rules.twoBlockCombatPosture() && target != null && target.isAlive();
+        boolean threatActive = target instanceof ServerPlayerEntity player
+                && ThreatScaling.playerThreat(player) >= ThreatScaling.ACTIVATION_THREAT;
+        boolean combatPosture = rules.twoBlockCombatPosture()
+                && threatActive
+                && target != null
+                && target.isAlive();
         if (combatPosture && self.getPose() != EntityPose.CROUCHING) {
             self.setPose(EntityPose.CROUCHING);
             threatdirector$ownsCombatPosture = true;

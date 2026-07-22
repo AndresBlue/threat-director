@@ -3,6 +3,7 @@ package com.andresblue.threatdirector.mixin;
 import com.andresblue.threatdirector.ThreatDirectorMod;
 import com.andresblue.threatdirector.apocalypse.ApocalypseSkeletonModule;
 import com.andresblue.threatdirector.apocalypse.SkeletonCombatPolicy;
+import com.andresblue.threatdirector.server.ThreatScaling;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.effect.StatusEffect;
 import net.minecraft.entity.effect.StatusEffectInstance;
@@ -16,6 +17,7 @@ import net.minecraft.item.Items;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
+import net.minecraft.server.network.ServerPlayerEntity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -43,7 +45,9 @@ public abstract class AbstractSkeletonEntityMixin {
         if (world.isClient
                 || !ThreatDirectorMod.isEnabled()
                 || !ApocalypseSkeletonModule.isRegistered()
-                || !SkeletonCombatPolicy.isEnhancedDifficulty(difficultyId)) {
+                || !SkeletonCombatPolicy.isEnhancedDifficulty(difficultyId)
+                || (target instanceof ServerPlayerEntity player
+                && ThreatScaling.playerThreat(player) < ThreatScaling.ACTIVATION_THREAT)) {
             return;
         }
 
@@ -64,7 +68,7 @@ public abstract class AbstractSkeletonEntityMixin {
                 targetVelocity.z);
         projectile.setVelocity(aim.x(), aim.y(), aim.z(), aim.speed(), aim.divergence());
         projectile.addCommandTag(ApocalypseSkeletonModule.ENHANCED_ARROW_TAG);
-        addVanillaArrowEffect(skeleton, projectile, difficultyId);
+        addVanillaArrowEffect(skeleton, projectile, difficultyId, target);
 
         skeleton.playSound(
                 SoundEvents.ENTITY_SKELETON_SHOOT,
@@ -77,13 +81,19 @@ public abstract class AbstractSkeletonEntityMixin {
     private static void addVanillaArrowEffect(
             AbstractSkeletonEntity skeleton,
             PersistentProjectileEntity projectile,
-            int difficultyId) {
+            int difficultyId,
+            LivingEntity target) {
         if (!(projectile instanceof ArrowEntity arrow)) {
             return;
         }
 
+        if (target instanceof ServerPlayerEntity player
+                && ThreatScaling.playerThreat(player) < ThreatScaling.ACTIVATION_THREAT) {
+            return;
+        }
         SkeletonCombatPolicy.ArrowPayload payload = SkeletonCombatPolicy.arrowPayload(
                 difficultyId,
+                skeleton.getRandom().nextFloat(),
                 skeleton.getRandom().nextFloat());
         if (!payload.appliesEffect()) {
             return;

@@ -1,5 +1,7 @@
 package com.andresblue.threatdirector.difficulty;
 
+import com.andresblue.threatdirector.server.ThreatScaling;
+
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.mob.EndermanEntity;
 import net.minecraft.entity.mob.HostileEntity;
@@ -19,6 +21,9 @@ public final class EndermanDifficultyAbilities {
         if (!(hurtHostile.getWorld() instanceof ServerWorld world)
                 || !(attacker instanceof ServerPlayerEntity player)
                 || player.isCreative() || player.isSpectator()) {
+            return;
+        }
+        if (ThreatScaling.playerThreat(player) < ThreatScaling.ACTIVATION_THREAT) {
             return;
         }
         DifficultyAbilityPolicy.EndermanRules rules = MinecraftDifficultyProfiles.forWorld(world).enderman();

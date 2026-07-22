@@ -6,6 +6,7 @@ import com.andresblue.threatdirector.creeper.ApocalypticCreeperPolicy.Horizontal
 import com.andresblue.threatdirector.creeper.ApocalypticCreeperPolicy.Mode;
 import com.andresblue.threatdirector.creeper.ApocalypticCreeperPolicy.Profile;
 import com.andresblue.threatdirector.server.MobGriefingGuard;
+import com.andresblue.threatdirector.server.ThreatScaling;
 import java.util.UUID;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.attribute.EntityAttributeInstance;
@@ -13,6 +14,7 @@ import net.minecraft.entity.attribute.EntityAttributeModifier;
 import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.mob.CreeperEntity;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.Difficulty;
 import net.minecraft.world.World;
@@ -55,15 +57,18 @@ public abstract class CreeperEntityMixin {
             return;
         }
 
+        LivingEntity target = creeper.getTarget();
+        double targetThreat = target instanceof ServerPlayerEntity player
+                ? ThreatScaling.playerThreat(player)
+                : 0.0;
         Mode mode = ThreatDirectorMod.isEnabled()
-                ? threatdirector$mode(world.getDifficulty())
+                ? threatdirector$mode(world.getDifficulty(), targetThreat)
                 : Mode.VANILLA;
         Profile profile = ApocalypticCreeperPolicy.profile(mode);
         if (threatdirector$dashCooldownTicks > 0) {
             threatdirector$dashCooldownTicks--;
         }
 
-        LivingEntity target = creeper.getTarget();
         boolean targetPresent = target != null && target.isAlive();
         double distanceSquared = targetPresent ? creeper.squaredDistanceTo(target) : Double.POSITIVE_INFINITY;
         boolean targetVisible = targetPresent && creeper.getVisibilityCache().canSee(target);
@@ -118,10 +123,13 @@ public abstract class CreeperEntityMixin {
     }
 
     @Unique
-    private static Mode threatdirector$mode(Difficulty difficulty) {
+    private static Mode threatdirector$mode(Difficulty difficulty, double threat) {
+        if (threat < ThreatScaling.ACTIVATION_THREAT) {
+            return Mode.VANILLA;
+        }
         return switch (difficulty) {
             case NORMAL -> Mode.PARTIAL;
-            case HARD -> Mode.APOCALYPTIC;
+            case HARD -> threat >= 70.0 ? Mode.APOCALYPTIC : Mode.PARTIAL;
             default -> Mode.VANILLA;
         };
     }

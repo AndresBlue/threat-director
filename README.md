@@ -53,24 +53,25 @@ vanilla y `mobGriefing`; continúan sujetos a coste, cap, spawn seguro y Threat 
 
 ## Habilidades por dificultad
 
-- **Esqueletos:** Normal usa alcance 24, velocidad de flecha 1.8 y divergencia 3 con predicción
-  parcial, más una probabilidad baja de lentitud. Hard usa alcance 42, velocidad 2.2, divergencia
-  0.25 a distancia —0.5 en corto—, mejora kiting, puede hacer dash y reparte lentitud, veneno,
-  náusea o ceguera entre sus flechas especiales. Easy no se modifica.
+- **Esqueletos:** Normal escala de 24 a 64 bloques y Hard de 32 a 128 según el threat individual.
+  Las flechas predicen el movimiento y se corrigen en vuelo; Hard mejora la precisión, permite dash
+  defensivo y aplica lentitud, veneno, náusea o ceguera durante 1–30 segundos (media aproximada de 8).
+  Easy conserva el tiro vanilla.
 - **Creepers:** Normal acelera la aproximación por la espalda y acorta parcialmente la mecha. Hard
   añade pasos silenciosos, dash, mecha más impredecible y encendido ante paredes bajo autoridad
   vanilla de `mobGriefing`.
-- **Zombies:** Normal puede equipar herramientas melee. Hard añade mejor equipo, escudo ocasional,
-  refuerzos acotados y rotura selectiva de un bloque apropiado para su herramienta bajo el guard
-  destructivo del servidor.
+- **Zombies:** Normal y Hard escalan su LOS/aggro individual hasta 48/96 bloques. Sobre 35 de threat,
+  la detección puede llamar un rayo y 3–5 (Normal) o 5–10 (Hard) zombies con el objetivo fijado;
+  golpear a uno alerta a la manada cercana y el aggro se conserva hasta la muerte. También hay
+  herramientas melee, escudos, refuerzos y rotura selectiva bajo el guard destructivo del servidor.
 - **Arañas:** Normal recibe Speed I y Jump Boost I. Hard sube esos buffs, añade regeneración y
-  fuerza, puede colocar una telaraña protegida al golpear y genera hasta dos cave spiders vanilla al
-  morir, sin recursión de crías.
+  fuerza, genera hasta dos cave spiders al morir y coloca telaraña muy rara vez (cooldown de 20 s y
+  1–6 % según threat), sin recursión de crías.
 - **Endermen:** Normal puede alertar hasta dos aliados cercanos. Hard amplía la alerta, adopta postura
   de combate de dos bloques y responde a pilares bajos con teleport acotado.
-- **Targeting común:** todos los `Monster` alcanzan 28 bloques en Normal y 48 en Hard. Este goal se
-  apaga en mobs administrados por un encuentro para no competir con el director; en LAN solo puede
-  seleccionar al host.
+- **Targeting común:** todos los `Monster` reciben un objetivo server-side por jugador, con rangos
+  dinámicos y visión compleja; no compite con mobs administrados por un encuentro. En LAN el servidor
+  integrado mantiene la autoridad y cada jugador conserva su propio threat.
 - **Otros hostiles vanilla:** reciben además presión temática server-side por familias. Brujas/illagers,
   voladores de fuego, guardianes, drowned/husks, enjambres y brutos tienen reglas acotadas; la familia
   residual continúa genérica, sin una habilidad especial inventada.

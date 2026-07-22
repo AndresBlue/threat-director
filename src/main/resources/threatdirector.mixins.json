@@ -5,6 +5,7 @@
   "mixins": [
     "MobEntityAccessor",
     "AbstractSkeletonEntityMixin",
+    "HomingArrowMixin",
     "CreeperEntityMixin",
     "EntityStepSoundMixin",
     "EndermanDifficultyMixin",

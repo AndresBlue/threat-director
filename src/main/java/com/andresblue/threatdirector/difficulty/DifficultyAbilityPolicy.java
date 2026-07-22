@@ -20,7 +20,8 @@ public final class DifficultyAbilityPolicy {
     private static final AbilityProfile HARD = new AbilityProfile(
             Tier.HARD,
             new ZombieRules(0.85, 4, true, 0.20, 2, 8, 200, 30),
-            new SpiderRules(1, 1, 0, 0, true, 100, 2),
+            // A web is a rare punctuation mark, not a permanent stun loop.
+            new SpiderRules(1, 1, 0, 0, true, 400, 2),
             new EndermanRules(24.0, 6, 1.0, true, 30, 80)
     );
 

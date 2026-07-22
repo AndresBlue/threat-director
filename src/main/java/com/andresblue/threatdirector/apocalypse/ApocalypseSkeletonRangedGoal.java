@@ -1,9 +1,11 @@
 package com.andresblue.threatdirector.apocalypse;
 
 import com.andresblue.threatdirector.ThreatDirectorMod;
+import com.andresblue.threatdirector.server.ThreatScaling;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.ai.goal.BowAttackGoal;
 import net.minecraft.entity.mob.AbstractSkeletonEntity;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.math.Vec3d;
 
 /**
@@ -37,12 +39,15 @@ final class ApocalypseSkeletonRangedGoal extends BowAttackGoal<AbstractSkeletonE
         return hasRequiredDifficulty()
                 && target != null
                 && target.isAlive()
+                && hasThreatRange(target)
                 && super.canStart();
     }
 
     @Override
     public boolean shouldContinue() {
-        return hasRequiredDifficulty() && super.shouldContinue();
+        return hasRequiredDifficulty()
+                && hasThreatRange(skeleton.getTarget())
+                && super.shouldContinue();
     }
 
     @Override
@@ -89,5 +94,16 @@ final class ApocalypseSkeletonRangedGoal extends BowAttackGoal<AbstractSkeletonE
     private boolean hasRequiredDifficulty() {
         return ThreatDirectorMod.isEnabled()
                 && skeleton.getWorld().getDifficulty().getId() == requiredDifficultyId;
+    }
+
+    private boolean hasThreatRange(LivingEntity target) {
+        if (!(target instanceof ServerPlayerEntity player)) {
+            return true;
+        }
+        double range = ThreatScaling.targetRange(
+                ThreatScaling.TargetFamily.SKELETON,
+                requiredDifficultyId,
+                ThreatScaling.playerThreat(player));
+        return range > 0.0 && skeleton.squaredDistanceTo(player) <= range * range;
     }
 }

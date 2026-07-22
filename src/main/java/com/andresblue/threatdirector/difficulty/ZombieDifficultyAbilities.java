@@ -1,6 +1,8 @@
 package com.andresblue.threatdirector.difficulty;
 
+import com.andresblue.threatdirector.ThreatDirectorMod;
 import com.andresblue.threatdirector.server.MobGriefingGuard;
+import com.andresblue.threatdirector.server.ThreatScaling;
 import net.minecraft.block.BlockState;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.EquipmentSlot;
@@ -8,6 +10,7 @@ import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.SpawnReason;
 import net.minecraft.entity.SpawnRestriction;
 import net.minecraft.entity.mob.ZombieEntity;
+import net.minecraft.entity.LightningEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
@@ -16,14 +19,102 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.world.GameRules;
 import net.minecraft.world.Heightmap;
+import net.minecraft.server.network.ServerPlayerEntity;
 
 import java.util.List;
 
 public final class ZombieDifficultyAbilities {
+    /** Persisted marker used to make an acquired player target sticky until death. */
+    public static final String AGGRO_TAG = "threatdirector_zombie_aggro";
     private static final double REINFORCEMENT_SCAN_RADIUS = 24.0;
     private static final int SPAWN_ATTEMPTS_PER_REINFORCEMENT = 12;
 
     private ZombieDifficultyAbilities() {
+    }
+
+    /** Reasserts a locked player target so walls and distance cannot make it drop. */
+    public static boolean maintainAggro(ZombieEntity zombie) {
+        if (!ThreatDirectorMod.isEnabled()
+                || !(zombie.getTarget() instanceof ServerPlayerEntity player)
+                || !player.isAlive()
+                || !zombie.getCommandTags().contains(AGGRO_TAG)) {
+            return false;
+        }
+        zombie.setTarget(player);
+        return true;
+    }
+
+    public static void markAggro(ZombieEntity zombie, ServerPlayerEntity target) {
+        if (ThreatDirectorMod.isEnabled() && target != null && target.isAlive()) {
+            zombie.addCommandTag(AGGRO_TAG);
+            zombie.setTarget(target);
+        }
+    }
+
+    /** Alerts nearby zombies belonging to the same server-side threat field. */
+    public static int alertNearby(ZombieEntity caller, ServerPlayerEntity target) {
+        if (!(caller.getWorld() instanceof ServerWorld world)
+                || !ThreatDirectorMod.isEnabled()
+                || target == null
+                || !target.isAlive()) {
+            return 0;
+        }
+        int difficultyId = world.getDifficulty().getId();
+        double radius = ThreatScaling.zombieAlertRadius(
+                difficultyId, ThreatScaling.playerThreat(target));
+        if (radius <= 0.0) {
+            return 0;
+        }
+        int alerted = 0;
+        for (ZombieEntity zombie : world.getEntitiesByClass(
+                ZombieEntity.class,
+                caller.getBoundingBox().expand(radius),
+                entity -> entity.isAlive() && entity != caller)) {
+            markAggro(zombie, target);
+            alerted++;
+        }
+        return alerted;
+    }
+
+    /**
+     * Converts first contact into a visible lightning-backed horde event. The caller
+     * is marked on success; the mixin marks it after a failed roll as well, preventing
+     * repeated rolls every tick while preserving the "never forget" target rule.
+     */
+    public static int tryTriggerHorde(ZombieEntity caller, ServerPlayerEntity target) {
+        if (!(caller.getWorld() instanceof ServerWorld world)
+                || !ThreatDirectorMod.isEnabled()
+                || target == null
+                || !target.isAlive()
+                || caller.getCommandTags().contains(AGGRO_TAG)
+                || !world.getGameRules().getBoolean(GameRules.DO_MOB_SPAWNING)) {
+            return 0;
+        }
+        int difficultyId = world.getDifficulty().getId();
+        double threat = ThreatScaling.playerThreat(target);
+        double chance = ThreatScaling.zombieHordeChance(difficultyId, threat);
+        if (chance <= 0.0 || caller.getRandom().nextDouble() >= chance) {
+            return 0;
+        }
+
+        LightningEntity lightning = EntityType.LIGHTNING_BOLT.create(world);
+        if (lightning != null) {
+            lightning.refreshPositionAfterTeleport(caller.getX(), caller.getY(), caller.getZ());
+            lightning.setCosmetic(!world.getGameRules().getBoolean(GameRules.DO_MOB_GRIEFING));
+            world.spawnEntity(lightning);
+        }
+
+        markAggro(caller, target);
+        int minimum = difficultyId >= 3 ? 5 : 3;
+        int roll = caller.getRandom().nextInt((difficultyId >= 3 ? 10 : 5) - minimum + 1);
+        int count = ThreatScaling.zombieHordeCount(difficultyId, threat, roll);
+        int spawned = 0;
+        for (int i = 0; i < count; i++) {
+            if (spawnOne(world, caller, target)) {
+                spawned++;
+            }
+        }
+        return spawned;
     }
 
     public static void equipForDifficulty(ZombieEntity zombie) {
@@ -140,6 +231,10 @@ public final class ZombieDifficultyAbilities {
                     SpawnReason.REINFORCEMENT, null, null);
             if (attacker != null && attacker.isAlive()) {
                 reinforcement.setTarget(attacker);
+                if (attacker instanceof ServerPlayerEntity player
+                        && ThreatScaling.playerThreat(player) >= ThreatScaling.ACTIVATION_THREAT) {
+                    markAggro(reinforcement, player);
+                }
             }
             return world.spawnEntity(reinforcement);
         }

@@ -13,7 +13,9 @@ import net.minecraft.entity.mob.CaveSpiderEntity;
 import net.minecraft.entity.mob.SpiderEntity;
 import net.minecraft.server.world.ServerWorld;
 import com.andresblue.threatdirector.server.MobGriefingGuard;
+import com.andresblue.threatdirector.server.ThreatScaling;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.world.GameRules;
 
 public final class SpiderDifficultyAbilities {
@@ -43,6 +45,13 @@ public final class SpiderDifficultyAbilities {
         DifficultyAbilityPolicy.SpiderRules rules = MinecraftDifficultyProfiles.forWorld(world).spider();
         if (!rules.cobwebOnHit()) {
             return false;
+        }
+        if (victim instanceof ServerPlayerEntity player) {
+            double chance = ThreatScaling.spiderCobwebChance(
+                    world.getDifficulty().getId(), ThreatScaling.playerThreat(player));
+            if (chance <= 0.0 || world.random.nextDouble() >= chance) {
+                return false;
+            }
         }
 
         BlockPos feet = victim.getBlockPos();

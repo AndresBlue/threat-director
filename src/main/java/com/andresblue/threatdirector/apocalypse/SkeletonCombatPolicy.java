@@ -7,8 +7,9 @@ package com.andresblue.threatdirector.apocalypse;
  */
 public final class SkeletonCombatPolicy {
     public static final double VANILLA_RANGE = 15.0;
-    public static final double NORMAL_RANGE = 24.0;
-    public static final double HARD_RANGE = 42.0;
+    /** Maximum enhanced range at full threat. The live goal scales this per player. */
+    public static final double NORMAL_RANGE = 64.0;
+    public static final double HARD_RANGE = 128.0;
 
     private static final int NORMAL_DIFFICULTY_ID = 2;
     private static final int HARD_DIFFICULTY_ID = 3;
@@ -98,7 +99,16 @@ public final class SkeletonCombatPolicy {
                 divergence);
     }
 
+    /**
+     * Backwards-compatible deterministic payload helper used by older callers/tests.
+     * The same sample drives effect selection and duration, while live arrows use
+     * independent samples for less predictable timing.
+     */
     public static ArrowPayload arrowPayload(int difficultyId, double roll) {
+        return arrowPayload(difficultyId, roll, roll);
+    }
+
+    public static ArrowPayload arrowPayload(int difficultyId, double roll, double durationRoll) {
         if (!Double.isFinite(roll) || roll < 0.0 || roll >= 1.0) {
             return ArrowPayload.NONE;
         }
@@ -107,7 +117,7 @@ public final class SkeletonCombatPolicy {
         }
         if (difficultyId < HARD_DIFFICULTY_ID) {
             return roll < 0.10
-                    ? new ArrowPayload(ArrowEffect.SLOWNESS, 60, 0)
+                    ? new ArrowPayload(ArrowEffect.SLOWNESS, effectDurationTicks(durationRoll), 0)
                     : ArrowPayload.NONE;
         }
 
@@ -115,15 +125,33 @@ public final class SkeletonCombatPolicy {
             return ArrowPayload.NONE;
         }
         if (roll < 0.76) {
-            return new ArrowPayload(ArrowEffect.SLOWNESS, 100, 1);
+            return new ArrowPayload(ArrowEffect.SLOWNESS, effectDurationTicks(durationRoll), 1);
         }
         if (roll < 0.84) {
-            return new ArrowPayload(ArrowEffect.POISON, 60, 0);
+            return new ArrowPayload(ArrowEffect.POISON, effectDurationTicks(durationRoll), 0);
         }
         if (roll < 0.92) {
-            return new ArrowPayload(ArrowEffect.NAUSEA, 120, 0);
+            return new ArrowPayload(ArrowEffect.NAUSEA, effectDurationTicks(durationRoll), 0);
         }
-        return new ArrowPayload(ArrowEffect.BLINDNESS, 60, 0);
+        return new ArrowPayload(ArrowEffect.BLINDNESS, effectDurationTicks(durationRoll), 0);
+    }
+
+    /**
+     * Returns a bounded, shifted-exponential duration: 1–30 seconds, with an
+     * approximately eight-second mean. The cap prevents permanent crowd-control
+     * while the distribution keeps repeated shots from feeling scripted.
+     */
+    public static int effectDurationTicks(double roll) {
+        if (!Double.isFinite(roll)) {
+            roll = 0.0;
+        }
+        roll = clamp(roll, 0.0, Math.nextDown(1.0));
+        final double minimum = 20.0;
+        final double maximum = 600.0;
+        final double scale = 140.0;
+        double normalizer = 1.0 - Math.exp(-(maximum - minimum) / scale);
+        double duration = minimum - scale * Math.log(1.0 - roll * normalizer);
+        return (int) Math.max(minimum, Math.min(maximum, Math.round(duration)));
     }
 
     public static boolean canDash(
