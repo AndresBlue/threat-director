@@ -134,7 +134,7 @@ server-sided.
 ## Instalación y compatibilidad
 
 1. Instala Fabric Loader, Fabric API y Java 17.
-2. Coloca `threat-director-0.3.0.jar` en `mods` del servidor o de la instancia integrada.
+2. Coloca `threat-director-0.3.5.jar` en `mods` del servidor o de la instancia integrada.
 3. Inicia el mundo y ajusta `config/threatdirector.json` si quieres cambiar caps o preset.
 
 El gameplay no requiere contenido adicional en el cliente, pero el cliente que quiera ver el overlay

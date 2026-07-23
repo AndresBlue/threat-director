@@ -1,6 +1,6 @@
 # Threat Director — guía completa de comandos
 
-Esta guía describe el árbol de comandos de Threat Director 0.3.0 para Minecraft 1.20.1. Todos los comandos son
+Esta guía describe el árbol de comandos de Threat Director 0.3.5 para Minecraft 1.20.1. Todos los comandos son
 autoritativos del servidor y comienzan con `/threatdirector`.
 
 ## Convenciones
@@ -384,7 +384,7 @@ presupuesto.
 
 ### `/threatdirector preset`
 
-Muestra el preset activo, actualmente `VANILLA_PLUS` en 0.3.0.
+Muestra el preset activo, actualmente `VANILLA_PLUS` en 0.3.5.
 
 ### `/threatdirector telemetry`
 
@@ -555,5 +555,5 @@ threatdirector performance reset
 threatdirector config reload
 ```
 
-Los objetivos deben estar conectados. La versión 0.3.0 no conserva controladores ni overrides tras
+Los objetivos deben estar conectados. La versión 0.3.5 no conserva controladores ni overrides tras
 reiniciar.
