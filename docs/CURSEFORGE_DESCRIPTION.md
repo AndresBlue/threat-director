@@ -124,8 +124,10 @@ y dificultad. El resto conserva el objetivo común adaptativo sin inventar entid
 
 `threat set` fuerza el valor efectivo en memoria para probar escenas y escalados; `threat clear`
 devuelve el cálculo adaptativo. `scene` crea o reutiliza un encuentro y salta directamente a una fase.
-El HUD es una barra segmentada sin texto, situada debajo de la XP y sobre la hotbar. Los OP la ven por
-defecto y pueden habilitarla para un jugador concreto con `hud on <player>` o esconderla con `hud off`.
+El HUD es una barra segmentada sin texto, situada en un espacio dedicado debajo de la XP y sobre la
+hotbar. La XP y los indicadores vanilla inferiores se elevan ligeramente para reservar la franja; la
+barra reutiliza la estética de la XP y conserva la paleta verde, amarilla, roja y morada. Los OP la ven
+por defecto y pueden habilitarla para un jugador concreto con `hud on <player>` o esconderla con `hud off`.
 El overlay requiere el JAR en el cliente que lo visualiza; la IA y el cálculo de threat siguen siendo
 server-sided.
 

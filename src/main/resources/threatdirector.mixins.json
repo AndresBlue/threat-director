@@ -14,6 +14,9 @@
     "SpiderDifficultyMixin",
     "ZombieDifficultyMixin"
   ],
+  "client": [
+    "InGameHudLayoutMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   }

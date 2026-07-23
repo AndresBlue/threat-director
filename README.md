@@ -136,8 +136,9 @@ para formar el mínimo contextual rechazan la escena con una causa clara, en vez
 ## HUD de amenaza
 
 Cada operador conectado que no esté en modo espectador recibe una barra segmentada sin texto, colocada
-debajo de la barra de experiencia y encima de la hotbar. Cambia de verde a amarillo, rojo y púrpura
-según el threat efectivo. Un OP puede habilitarla para cualquier jugador con
+en un espacio dedicado debajo de la barra de experiencia y encima de la hotbar. XP, vida, armadura,
+hambre y montura se elevan ligeramente para reservar esa franja. La barra usa la misma textura base
+de la XP y cambia de verde a amarillo, rojo y púrpura según el threat efectivo. Un OP puede habilitarla para cualquier jugador con
 `/threatdirector hud on <player>` u ocultarla con `hud off`; la preferencia es individual. El servidor
 sincroniza únicamente progreso, color y visibilidad mediante un paquete pequeño; la lógica de threat
 continúa siendo server-sided. Para ver el overlay el cliente debe tener el JAR, aunque la IA del

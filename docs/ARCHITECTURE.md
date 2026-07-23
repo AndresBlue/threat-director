@@ -106,7 +106,8 @@ efectivo al director y al HUD, mientras el muestreo continúa actualizando `adap
 limpiar el override no hay que reconstruir ni falsear el historial observado.
 
 `ThreatHudService` sincroniza por jugador únicamente progreso, color y visibilidad. El cliente registra
-un canal opcional y dibuja una barra segmentada sin texto debajo de XP y sobre la hotbar; el servidor
+un canal opcional y dibuja una barra segmentada sin texto debajo de XP y sobre la hotbar. Un mixin
+client-side eleva XP, vida, armadura, hambre y montura para reservar la franja; el servidor
 no depende de un overlay para ejecutar la IA. Los operadores se muestran por defecto y una preferencia
 explícita permite habilitar la barra para no operadores. Si el cliente no tiene el JAR, simplemente no
 renderiza el overlay. Todas las ramas del comando `hud` requieren OP2, pero pueden dirigirse a cualquier
