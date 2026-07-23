@@ -102,7 +102,7 @@ public final class ThreatDirectorRuntime implements AutoCloseable {
         long tick = server.getTicks();
         if (!config.enabled()) {
             int cleared = encounters.disable(config, tick);
-            hud.clear();
+            hud.clear(server);
             if (cleared > 0) {
                 ThreatDirectorMod.LOGGER.info(
                         "Threat Director disabled by server config; released {} active encounters",
@@ -183,19 +183,18 @@ public final class ThreatDirectorRuntime implements AutoCloseable {
         if (configManager.current().enabled()) {
             hud.sync(server, observations, encounters);
         } else {
-            hud.clear();
+            hud.clear(server);
         }
     }
 
     public void setHudEnabled(ServerPlayerEntity player, boolean enabled) {
-        boolean operator = server.getPlayerManager().isOperator(player.getGameProfile());
-        hud.setEnabled(player.getUuid(), operator && enabled);
+        hud.setEnabled(player.getUuid(), enabled);
         refreshHud();
     }
 
     public boolean isHudEnabled(ServerPlayerEntity player) {
-        return server.getPlayerManager().isOperator(player.getGameProfile())
-                && hud.isEnabled(player.getUuid());
+        boolean operator = server.getPlayerManager().isOperator(player.getGameProfile());
+        return hud.isEnabled(player.getUuid(), operator);
     }
 
     public CompatibilityRegistry compatibility() {

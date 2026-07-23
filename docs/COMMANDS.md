@@ -16,9 +16,9 @@ autoritativos del servidor y comienzan con `/threatdirector`.
   muestran el motivo en rojo.
 
 La regla de permisos es: las mutaciones del director y las operaciones sobre otro jugador requieren
-OP2. El HUD es una herramienta administrativa: solo se muestra a operadores y todas las ramas
-`hud`, incluida la preferencia propia, requieren OP2. Las consultas propias de estado, intensidad y
-threat continúan disponibles sin permisos.
+OP2. El HUD es una herramienta administrativa: los operadores lo ven por defecto y todas las ramas
+`hud`, incluida la preferencia propia, requieren OP2. Un OP puede habilitarlo para un jugador sin OP.
+Las consultas propias de estado, intensidad y threat continúan disponibles sin permisos.
 
 ## Resumen de sintaxis y permisos
 
@@ -160,16 +160,16 @@ necesita un emisor dentro del juego; la consola debe indicar un objetivo conecta
 
 ### `/threatdirector hud on|off [player]`
 
-Requiere OP2 incluso para la barra propia. Un jugador sin permiso no recibe bossbar y no puede usar
-ninguna rama `hud`; concederle OP2 lo vuelve elegible en el siguiente refresco.
+Requiere OP2 incluso para la barra propia. Un OP puede habilitar la barra para un jugador sin OP usando
+`hud on <player>`; ese jugador solo necesita tener el JAR cliente para visualizar el overlay.
 
-Ocultarla retira el `ServerBossBar` del cliente, pero no detiene intensity, threat, encuentros ni IA,
-y no afecta a otros miembros del grupo. La preferencia dura la sesión del servidor, incluso tras una
-desconexión, pero se restablece al reiniciar.
+Ocultarla retira el overlay del cliente, pero no detiene intensity, threat, encuentros ni IA, y no afecta
+a otros miembros del grupo. La preferencia dura la sesión del servidor, incluso tras una desconexión,
+pero se restablece al reiniciar.
 
-Los no operadores y los espectadores no reciben barra. Al recuperar OP2 o volver a un modo no
-espectador reaparece en el siguiente refresco si la preferencia está activa. El HUD usa paquetes
-bossbar vanilla, se sincroniza cada 10 ticks y no necesita overlay o paquete personalizado.
+Los no operadores no reciben barra salvo que un OP los habilite explícitamente; los espectadores no la
+reciben. Al recuperar OP2 o volver a un modo no espectador reaparece en el siguiente refresco si la
+preferencia está activa. El HUD usa un paquete pequeño propio y se sincroniza cada 10 ticks.
 
 ## Crear y terminar encuentros
 
@@ -494,9 +494,9 @@ Con dos jugadores dentro de `multiplayer.groupRadius`:
 /threatdirector scene engaging JugadorPrimario
 ```
 
-Si el secundario es OP2 debe ver `GRUPO`; sin OP2 no recibe barra. En su cliente, `threat` muestra lo
-compartido e `intensity` su diagnóstico personal. Solo un operador puede usar `hud off` para ocultar
-su propia barra.
+Si el secundario tiene el HUD habilitado debe ver el threat compartido. En su cliente, `threat` muestra
+lo compartido e `intensity` su diagnóstico personal. Solo un operador puede usar `hud off` para ocultar
+su propia barra o la de otro jugador.
 
 ### Safeguards
 
@@ -532,8 +532,8 @@ Threat Director es server-sided:
 - En dedicado, instale Threat Director y Fabric API en el servidor.
 - En singleplayer, instálelos en la instancia del anfitrión: el mundo usa un servidor integrado.
 - Al abrir por LAN, el anfitrión ejecuta el director. Los invitados reciben entidades, movimiento y
-  efectos mediante protocolo vanilla; solo los invitados OP2 reciben la bossbar administrativa.
-  Threat Director no exige overlay ni canal cliente propio.
+  efectos mediante protocolo vanilla. Un invitado solo ve el overlay si tiene el JAR cliente y un OP le
+  habilitó el HUD.
 - En LAN, solo el anfitrión puede ser ancla automática aunque un invitado tenga más equipo. Si el host
   es inelegible no se elige al invitado como reemplazo automático; se espera otro scan elegible.
 - Esta prioridad solo afecta la selección automática. `start <player>` y `scene <state> <player>`

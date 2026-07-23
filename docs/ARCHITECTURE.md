@@ -5,11 +5,10 @@
 El repositorio apunta a Minecraft 1.20.1 con Fabric Loader 0.18.4, Yarn
 1.20.1+build.10, Fabric API 0.92.11+1.20.1 y bytecode Java 17. La máquina de
 desarrollo inspeccionada dispone de Temurin 21, que compila con `--release 17`.
-La versión 0.3.0 es autoritativa del servidor: no necesita entrypoint cliente, paquetes personalizados ni
-una interfaz gráfica. En dedicado y en LAN basta con instalarlo en el lado que aloja el servidor;
-los clientes remotos de Minecraft 1.20.1 pueden conectarse sin Threat Director. Solo los operadores
-OP2 reciben el HUD mediante la bossbar vanilla. En una partida integrada, el host sí necesita el mod
-porque también ejecuta el servidor.
+La lógica de la versión 0.3.0 es autoritativa del servidor. En dedicado y en LAN basta con instalarlo
+en el lado que aloja el servidor para ejecutar IA, threat y encuentros; los clientes remotos pueden
+conectarse sin el mod. El overlay opcional sí requiere el JAR en el cliente que quiera verlo: el host
+integrado lo necesita porque también ejecuta el servidor y renderiza su propio HUD.
 
 La configuración descrita aquí ya tiene modelo, validación y carga en
 `com.andresblue.threatdirector.config`. El enlace de `ConfigManager` con
@@ -31,8 +30,8 @@ El runtime coordina grupos vanilla y añade capacidades server-side por dificult
 - Comandos administrativos y telemetría local opcional.
 - Perfiles Easy vanilla, Normal parcial y Hard Apocalypse para familias hostiles vanilla.
 
-No forman parte de 0.3.0 los mobs externos, adapters concretos de Prominence II, élites, overlay
-cliente, PvPvE ni reconocimiento avanzado de estructuras. `BreachPlanner` no ejecuta roturas, pero
+No forman parte de 0.3.0 los mobs externos, adapters concretos de Prominence II, élites, PvPvE ni
+reconocimiento avanzado de estructuras. `BreachPlanner` no ejecuta roturas, pero
 los zombies Hard sí pueden retirar una obstrucción compatible mediante `MobGriefingGuard`; las
 telarañas Hard usan el mismo guard.
 
@@ -43,7 +42,7 @@ Fabric lifecycle/events
         ↓                         ↓
 ThreatDirectorRuntime      módulos de dificultad/mixins
         ↓                       ↓
-PlayerObservationService ── ThreatHudService ── ServerBossBar vanilla
+PlayerObservationService ── ThreatHudService ── paquete HUD opcional ── overlay cliente
         ↓
 PerformanceGovernor
         ↓
@@ -106,12 +105,12 @@ Un override administrativo vive separado de la intensidad adaptativa. `intensity
 efectivo al director y al HUD, mientras el muestreo continúa actualizando `adaptiveIntensity()`; al
 limpiar el override no hay que reconstruir ni falsear el historial observado.
 
-`ThreatHudService` mantiene un `ServerBossBar` individual únicamente por UUID operador y no
-espectador. Reconcilia join, cambios de permiso, disconnect y respawn desde el hilo del servidor, y
-elimina todas las barras al desactivar o cerrar el runtime. Fuera de combate muestra la intensidad
-individual; los participantes OP secundarios de un encuentro muestran la intensidad efectiva del
-objetivo primario con la marca `GRUPO`. El cliente recibe paquetes bossbar vanilla: no existe
-entrypoint gráfico ni protocolo personalizado. Todas las ramas del comando `hud` requieren OP2.
+`ThreatHudService` sincroniza por jugador únicamente progreso, color y visibilidad. El cliente registra
+un canal opcional y dibuja una barra segmentada sin texto debajo de XP y sobre la hotbar; el servidor
+no depende de un overlay para ejecutar la IA. Los operadores se muestran por defecto y una preferencia
+explícita permite habilitar la barra para no operadores. Si el cliente no tiene el JAR, simplemente no
+renderiza el overlay. Todas las ramas del comando `hud` requieren OP2, pero pueden dirigirse a cualquier
+jugador conectado.
 
 ### Encuentros
 
@@ -194,19 +193,19 @@ teletransporta y no se recalcula navegación cada tick.
 ### Habilidades vanilla por dificultad
 
 Las habilidades se aplican en el servidor a hostiles vanilla cargados, no solo a miembros de un
-encuentro. No registran entidades, efectos, atributos ni paquetes nuevos: combinan goals, tags,
-equipamiento, efectos y movimiento vanilla. `enabled=false` selecciona el comportamiento Easy.
+encuentro. No registran entidades, efectos ni atributos de contenido: combinan goals, tags,
+equipamiento, efectos y movimiento vanilla. El único canal adicional es el overlay HUD opcional.
+`enabled=false` selecciona el comportamiento Easy.
 
 - **Easy:** no añade targeting, buffs ni habilidades y la probabilidad de encuentros automáticos es
   cero. Los comandos OP aún pueden crear una escena, respetando todas las salvaguardas.
-- **Targeting común:** todos los `Monster` reciben un `ActiveTargetGoal` de 28 bloques en Normal y
-  48 en Hard. El goal se desactiva mientras el tag de ownership indica que el mob está administrado
-  por un encuentro, evitando pelear con `DirectorTargetGateGoal`; en servidor integrado/LAN el
-  predicado solo admite al host como target automático.
-- **Skeletons:** dos `BowAttackGoal` de mayor prioridad amplían el alcance a 24 en Normal y 42 en
-  Hard; el original sigue disponible para Easy. El mixin de `attack` conserva proyectil y sonido
-  vanilla, añade predicción solo desde 12 bloques y usa velocidad/divergencia `1.8/3` en Normal y
-  `2.2/0.25` en Hard (`0.5` de divergencia en corto).
+- **Targeting común:** todos los `Monster` reciben un `ActiveTargetGoal` server-side con rango por
+  jugador. El escalado empieza sobre 35 de threat y llega a 48 para genéricos, 64 para esqueletos
+  Normal, 96 para zombis Hard y 128 para esqueletos Hard. En Hard puede ignorar visibilidad y se
+  apaga mientras el mob está administrado por un encuentro.
+- **Skeletons:** dos `BowAttackGoal` de mayor prioridad escalan el alcance a 24–64 en Normal y
+  32–128 en Hard; el original sigue disponible para Easy. El mixin de `attack` conserva proyectil y
+  sonido vanilla, predice movimiento y el overlay de flecha aplica guiado progresivo por threat.
   Normal tiene 10 % de lentitud; Hard tiene 32 % total, repartido por igual entre lentitud, veneno,
   náusea y ceguera. El kiting proviene del goal de arco y Hard puede hacer dash hacia atrás con
   cooldown. Los tags son `threatdirector_apocalypse_skeleton` y

@@ -4,22 +4,23 @@ import com.andresblue.threatdirector.encounter.EncounterController;
 import com.andresblue.threatdirector.encounter.EncounterManager;
 import com.andresblue.threatdirector.power.IntensityBand;
 import net.minecraft.entity.boss.BossBar;
-import net.minecraft.entity.boss.ServerBossBar;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.Text;
 
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-/** Maintains one vanilla boss bar per connected player, without requiring client-side code. */
+/**
+ * Synchronizes the threat value to the optional client overlay.
+ *
+ * <p>Operators are visible by default. A non-operator can be explicitly enabled
+ * by an OP through {@code /threatdirector hud on <player>}.</p>
+ */
 public final class ThreatHudService implements AutoCloseable {
-    private final Map<UUID, ServerBossBar> bars = new HashMap<>();
+    private final Set<UUID> explicitlyEnabled = new HashSet<>();
     private final Set<UUID> hiddenPlayers = new HashSet<>();
+    private final Set<UUID> lastVisible = new HashSet<>();
 
     public void sync(
             MinecraftServer server,
@@ -27,65 +28,101 @@ public final class ThreatHudService implements AutoCloseable {
             EncounterManager encounters) {
         Set<UUID> onlinePlayers = new HashSet<>();
         for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+            UUID playerId = player.getUuid();
+            onlinePlayers.add(playerId);
             boolean operator = server.getPlayerManager().isOperator(player.getGameProfile());
-            if (!shouldDisplay(
+            boolean display = shouldDisplay(
                     operator,
                     player.isSpectator(),
-                    !hiddenPlayers.contains(player.getUuid()))) {
+                    explicitlyEnabled.contains(playerId),
+                    !hiddenPlayers.contains(playerId));
+            if (!display) {
+                if (lastVisible.remove(playerId)) {
+                    ThreatHudNetwork.send(player, false, 0.0F, 0);
+                }
                 continue;
             }
-            onlinePlayers.add(player.getUuid());
-            PlayerDirectorState displayState = observations.state(player.getUuid());
-            EncounterController encounter = encounters.forPlayer(player.getUuid()).orElse(null);
-            boolean groupThreat = encounter != null
-                    && !encounter.targetPlayerId().equals(player.getUuid());
+
+            PlayerDirectorState displayState = observations.state(playerId);
+            EncounterController encounter = encounters.forPlayer(playerId).orElse(null);
             if (encounter != null) {
                 displayState = observations.state(encounter.targetPlayerId());
             }
-            syncPlayer(player, displayState, groupThreat);
+            syncPlayer(player, displayState);
         }
 
-        bars.entrySet().removeIf(entry -> {
-            if (onlinePlayers.contains(entry.getKey())) {
+        lastVisible.removeIf(playerId -> {
+            if (onlinePlayers.contains(playerId)) {
                 return false;
             }
-            entry.getValue().clearPlayers();
             return true;
         });
     }
 
-    private void syncPlayer(
-            ServerPlayerEntity player, PlayerDirectorState state, boolean groupThreat) {
-        HudPresentation presentation = presentation(state, groupThreat);
-        ServerBossBar bar = bars.computeIfAbsent(player.getUuid(), ignored -> createBar());
+    private void syncPlayer(ServerPlayerEntity player, PlayerDirectorState state) {
+        double intensity = Double.isFinite(state.intensity())
+                ? Math.max(0.0, Math.min(100.0, state.intensity()))
+                : 0.0;
+        boolean sent = ThreatHudNetwork.send(
+                player,
+                true,
+                (float) (intensity / 100.0),
+                colorId(state.band()));
+        if (sent) {
+            lastVisible.add(player.getUuid());
+        }
+    }
 
-        for (ServerPlayerEntity attached : List.copyOf(bar.getPlayers())) {
-            if (attached != player) {
-                bar.removePlayer(attached);
+    public void clear() {
+        explicitlyEnabled.clear();
+        hiddenPlayers.clear();
+        lastVisible.clear();
+    }
+
+    public void clear(MinecraftServer server) {
+        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+            if (lastVisible.contains(player.getUuid())) {
+                ThreatHudNetwork.send(player, false, 0.0F, 0);
             }
         }
-        if (!bar.getPlayers().contains(player)) {
-            bar.addPlayer(player);
+        // A temporary config disable hides the overlay but keeps per-player preferences
+        // for the next enable; a full runtime close calls clear() and drops them.
+        lastVisible.clear();
+    }
+
+    public void setEnabled(UUID playerId, boolean enabled) {
+        if (enabled) {
+            explicitlyEnabled.add(playerId);
+            hiddenPlayers.remove(playerId);
+            return;
         }
-
-        bar.setName(Text.literal(presentation.title()));
-        bar.setPercent(presentation.progress());
-        bar.setColor(presentation.color());
-        bar.setStyle(BossBar.Style.NOTCHED_10);
-        bar.setVisible(true);
+        explicitlyEnabled.remove(playerId);
+        hiddenPlayers.add(playerId);
     }
 
-    private static ServerBossBar createBar() {
-        ServerBossBar bar = new ServerBossBar(
-                Text.literal("THREAT 0% · BAJO"),
-                BossBar.Color.GREEN,
-                BossBar.Style.NOTCHED_10);
-        bar.setDarkenSky(false);
-        bar.setDragonMusic(false);
-        bar.setThickenFog(false);
-        return bar;
+    public boolean isEnabled(UUID playerId) {
+        return !hiddenPlayers.contains(playerId);
     }
 
+    public boolean isEnabled(UUID playerId, boolean operator) {
+        return !hiddenPlayers.contains(playerId)
+                && (operator || explicitlyEnabled.contains(playerId));
+    }
+
+    static boolean shouldDisplay(
+            boolean operator,
+            boolean spectator,
+            boolean explicitlyEnabled,
+            boolean preferenceEnabled) {
+        return !spectator && preferenceEnabled && (operator || explicitlyEnabled);
+    }
+
+    /** Compatibility overload retained for pure policy callers. */
+    static boolean shouldDisplay(boolean operator, boolean spectator, boolean preferenceEnabled) {
+        return shouldDisplay(operator, spectator, false, preferenceEnabled);
+    }
+
+    /** Pure presentation helper retained for diagnostics/tests; the live HUD draws no text. */
     static HudPresentation presentation(PlayerDirectorState state) {
         return presentation(state, false);
     }
@@ -94,13 +131,12 @@ public final class ThreatHudService implements AutoCloseable {
         double intensity = Double.isFinite(state.intensity())
                 ? Math.max(0.0, Math.min(100.0, state.intensity()))
                 : 0.0;
-        IntensityBand band = state.band();
         String suffix = state.hasIntensityOverride() ? " · FORZADO" : "";
         if (groupThreat) {
             suffix += " · GRUPO";
         }
-        String title = "THREAT " + Math.round(intensity) + "% · " + label(band) + suffix;
-        return new HudPresentation((float) (intensity / 100.0), title, color(band));
+        String title = "THREAT " + Math.round(intensity) + "% · " + label(state.band()) + suffix;
+        return new HudPresentation((float) (intensity / 100.0), title, color(state.band()));
     }
 
     private static String label(IntensityBand band) {
@@ -121,35 +157,18 @@ public final class ThreatHudService implements AutoCloseable {
         };
     }
 
-    public void clear() {
-        bars.values().forEach(ServerBossBar::clearPlayers);
-        bars.clear();
-    }
-
-    public void setEnabled(UUID playerId, boolean enabled) {
-        if (enabled) {
-            hiddenPlayers.remove(playerId);
-            return;
-        }
-        hiddenPlayers.add(playerId);
-        ServerBossBar removed = bars.remove(playerId);
-        if (removed != null) {
-            removed.clearPlayers();
-        }
-    }
-
-    public boolean isEnabled(UUID playerId) {
-        return !hiddenPlayers.contains(playerId);
-    }
-
-    static boolean shouldDisplay(boolean operator, boolean spectator, boolean preferenceEnabled) {
-        return operator && !spectator && preferenceEnabled;
+    private static int colorId(IntensityBand band) {
+        return switch (band) {
+            case LOW -> 0;
+            case TACTICAL -> 1;
+            case HIGH -> 2;
+            case EXTREME -> 3;
+        };
     }
 
     @Override
     public void close() {
         clear();
-        hiddenPlayers.clear();
     }
 
     record HudPresentation(float progress, String title, BossBar.Color color) {

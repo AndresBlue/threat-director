@@ -99,33 +99,33 @@ activa.
 
 Entrar con dos jugadores equipados de forma diferente, uno OP2 y otro sin permisos.
 
-Esperado: solo el OP2 ve una barra propia de diez segmentos; porcentaje, texto y color reflejan su
-threat. El no operador no recibe bossbar. Al otorgar OP2 al segundo y entrar ambos en el mismo
-encuentro, el secundario muestra el threat compartido con la marca `GRUPO`.
+Esperado: solo el OP2 ve una barra propia segmentada, sin texto, ubicada entre XP y hotbar; el color
+refleja su threat. El no operador no la recibe hasta que un OP ejecuta `/threatdirector hud on <player>`.
+Al habilitarla durante el mismo encuentro, el secundario muestra el threat compartido.
 
 ### HUD-02 — override OP
 
 Como OP2, ejecutar `/threatdirector threat set 90`, observar la barra y luego ejecutar
 `/threatdirector threat clear`.
 
-Esperado: cambia inmediatamente a `THREAT 90% · EXTREMO · FORZADO`; al limpiar desaparece la marca y
-regresa al último cálculo adaptativo, que continuó actualizándose en segundo plano.
+Esperado: la barra cambia inmediatamente al nivel extremo; al limpiar el override regresa al último
+cálculo adaptativo, que continuó actualizándose en segundo plano.
 
 ### HUD-03 — lifecycle
 
 Desconectarse, reconectar, morir/respawnear y desactivar el mod desde configuración.
 
-Esperado: no se duplican barras; el respawn conserva una sola barra y al desactivar el runtime se
-retira del HUD.
+Esperado: no se duplica la barra; el respawn conserva una sola y al desactivar el runtime se retira
+del HUD.
 
 ### HUD-04 — permisos y preferencia
 
 Intentar `/threatdirector hud`, `/threatdirector hud off` y `/threatdirector hud on` sin permisos.
 Después, como OP2, repetirlos para sí mismo y para otro operador conectado.
 
-Esperado: el jugador sin OP2 no ve ni ejecuta ninguna rama `hud`. El operador puede ocultar o
-recuperar su barra y la de otro operador; la preferencia no altera el cálculo de threat. Aplicar
-`/deop` retira la barra en el siguiente refresco aunque la preferencia estuviera activada.
+Esperado: el jugador sin OP2 no ejecuta ninguna rama `hud`. El operador puede ocultar o recuperar su
+barra y habilitar la de cualquier jugador; la preferencia no altera el cálculo de threat. Los
+espectadores nunca reciben la barra.
 
 ### INT-01 — jugador débil
 
@@ -301,11 +301,10 @@ ruta conserva health, spawn, cap, chunks y demás salvaguardas.
 2. Crear después un encuentro mediante `scene engaging` y observar un mob con el tag administrado.
 3. En LAN, poner al invitado más cerca que el host y repetir con ambos elegibles.
 
-Esperado: Normal escanea cada 20 ticks hasta 28 bloques y requiere visión; Hard escanea cada 10
-ticks hasta 48 y puede mantener memoria sin visión hasta 240 ticks. Easy no añade este goal. Mientras
-el mob está manejado por un encuentro, el targeting común se apaga y manda la compuerta del director.
-En LAN solo el host es target automático; el invitado puede participar o ser objetivo explícito de
-un comando OP, pero no lo selecciona este goal.
+Esperado: por debajo de 35 de threat el objetivo extra permanece dormido. Sobre ese umbral el rango
+crece por jugador; genéricos alcanzan 48, esqueletos Hard 128 y zombis Hard 96 a threat máximo. Hard
+puede conservar memoria sin visión. Easy no añade este goal. Mientras el mob está manejado por un
+encuentro, el targeting común se apaga y manda la compuerta del director.
 
 ### ABIL-03 — esqueletos predictivos
 
@@ -314,10 +313,10 @@ un comando OP, pero no lo selecciona este goal.
 2. Medir tiros cerca del límite de alcance y observar tags/efectos durante una muestra amplia.
 3. En Hard, acercarse a menos de siete bloques con línea de visión y espacio detrás del esqueleto.
 
-Esperado: Easy conserva alcance 15 y flecha vanilla. Normal ataca hasta 24, lanza a velocidad 1.8,
-usa divergencia 3 y predicción parcial desde 12 bloques; aproximadamente 10 % de sus flechas añaden
-Slowness I durante 60 ticks. Hard ataca hasta 42, lanza a 2.2 y usa divergencia 0.25 en largo alcance
-—0.5 en corto—; hace kiting y puede ejecutar dash hacia atrás con cooldown. En una muestra suficiente,
+Esperado: Easy conserva alcance 15 y flecha vanilla. Normal escala de 24 a 64 según threat; Hard de
+32 a 128, lanza a 2.2, predice el movimiento y corrige el proyectil en vuelo. Las flechas especiales
+duran 20–600 ticks, con media aproximada de ocho segundos; Hard hace kiting y puede ejecutar dash
+hacia atrás con cooldown. En una muestra suficiente,
 32 % de las flechas Hard se reparten entre Slowness II, Poison I, Nausea I y Blindness I con efectos
 vanilla. No aparece entidad ni paquete no vanilla.
 
@@ -386,7 +385,7 @@ Esperado: además del targeting común, Normal/Hard aplican reglas acotadas y co
 coordinación de raiders, impulso de aproximación aérea, fatiga de guardian/drowned, hambre de husk,
 rally de enjambres y carga de brutos solo en Hard. Las ventanas de distancia, visión, agua, máximo de
 aliados y caps de velocidad impiden spam. Una entidad de la familia residual `OTHER` recibe targeting
-28/48, pero ninguna habilidad temática genérica.
+genérico dinámico, pero ninguna habilidad temática inventada.
 
 ## Multijugador
 
@@ -421,12 +420,11 @@ incapaz de responder indefinidamente.
    scans de 40 ticks.
 5. Como OP2, ejecutar `/threatdirector start <invitado>`; después otorgar OP2 al invitado.
 
-Esperado: el cliente remoto conecta sin handshake, canal ni paquete del mod. Sin OP2 no recibe
-bossbar. Mientras el host es elegible, es siempre el target automático aunque el invitado tenga más
-potencia; el invitado nunca lo sustituye cuando el host queda inelegible. El inicio administrativo
-explícito sí puede elegir al invitado y, una vez que este tiene OP2, la barra vanilla autoritativa del
-servidor aparece. Al salir del encuentro desaparece `GRUPO`; al desconectarse o cerrar el mundo se
-limpian barras y referencias retenidas.
+Esperado: el cliente remoto conecta sin depender del canal del mod. Mientras el host es elegible, es
+siempre el target automático aunque el invitado tenga más potencia; el invitado nunca lo sustituye
+cuando el host queda inelegible. El inicio administrativo explícito sí puede elegir al invitado y un OP
+puede ejecutar `hud on <invitado>`; si el cliente tiene el JAR, aparece la barra. Al salir del encuentro
+desaparece la presión compartida; al desconectarse o cerrar el mundo se limpian referencias retenidas.
 
 ## Rendimiento y degradación
 
@@ -488,8 +486,8 @@ servidor. Conectar a cada uno un cliente remoto Minecraft 1.20.1 sin el mod.
 
 Esperado: carga completa sin referencias opcionales, comandos disponibles, preset Vanilla Plus y
 conexión de los clientes sin instalar Threat Director. El host integrado sí lleva el mod porque
-ejecuta el servidor; HUD, IA y configuración siguen siendo autoritativos del servidor. Los clientes
-remotos sin OP2 no reciben HUD; al conceder OP2 reciben la bossbar vanilla sin instalar el mod.
+ejecuta el servidor; HUD, IA y configuración siguen siendo autoritativos del servidor. Un cliente sin
+el JAR puede jugar, pero no renderiza el overlay; con el JAR y una habilitación OP sí lo muestra.
 
 ### COMP-02 — mob externo próximo
 
@@ -516,13 +514,14 @@ modifica bloques en ningún caso y su simulación explica que no pudo demostrar 
 - Build y JUnit pasan desde checkout limpio; los GameTests están planificados como siguiente capa.
 - Cliente integrado y servidor dedicado deben arrancar sin mods externos; ambos son escenarios de
   aceptación manual, no una afirmación cubierta por JUnit.
-- Un cliente remoto 1.20.1 sin Threat Director conecta a dedicado y LAN; solo recibe la bossbar
-  vanilla si tiene OP2. En LAN el host es la única ancla y el único target automático.
+- Un cliente remoto 1.20.1 sin Threat Director conecta a dedicado y LAN, pero no renderiza el overlay.
+  En LAN el host es la única ancla automática; los clientes con el JAR pueden recibir una barra
+  habilitada individualmente.
 - Easy no genera encuentros automáticos ni altera habilidades vanilla. Normal conserva presión
   parcial. Hard reproduce caps 64/96, mínimos 23/34, melee 23/34, oleadas 13/20 de hasta diez cada
   100/80 ticks y chances 30 %/60 % por scan de 40 ticks según superficie/peligro completo.
-- El targeting 28/48 alcanza a todos los `Monster`, se apaga mientras el mob lleva el tag de gestión
-  de un encuentro y en LAN solo adquiere al host.
+- El targeting dinámico alcanza a todos los `Monster`, se apaga mientras el mob lleva el tag de gestión
+  de un encuentro y mantiene la autoridad automática del host en LAN.
 - Se reproducen las habilidades específicas de skeleton, creeper, zombie, spider y enderman, y al
   menos una muestra de cada familia temática restante, sin cambios de habilidad en Easy.
 - BreachPlanner no modifica bloques. La rotura zombie real solo ocurre con `mobGriefing=true`, chunk

@@ -13,6 +13,9 @@
     "main": [
       "com.andresblue.threatdirector.ThreatDirectorMod"
     ],
+    "client": [
+      "com.andresblue.threatdirector.ThreatDirectorClient"
+    ],
     "threatdirector-api-v1": [
       "com.andresblue.threatdirector.api.v1.ThreatDirectorApiProvider"
     ]

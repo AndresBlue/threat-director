@@ -7,9 +7,10 @@ El servidor observa a cada jugador, estima su preparación y peligro ambiental, 
 roles, sectores, flanqueos y oleadas. Una aldea puede parecer tranquila al principio y convertirse en
 el punto de convergencia de una horda cuando el jugador ya está bien equipado.
 
-El mod está diseñado para ser server-sided: no registra bloques, objetos, entidades ni paquetes de
-cliente propios. En un mundo abierto por LAN, instalarlo en la instancia del anfitrión basta; la IA,
-el threat y los comandos se ejecutan en el servidor integrado. Los invitados no necesitan instalarlo.
+El mod está diseñado para ser server-sided: no registra bloques, objetos ni entidades de contenido.
+La IA, el threat y los comandos se ejecutan en el servidor integrado; el único paquete adicional es el
+canal opcional que transmite el valor del HUD al cliente que quiera visualizarlo. Los invitados pueden
+jugar sin el mod, pero necesitan el JAR para ver su propia barra.
 
 ## Requisitos
 
@@ -123,7 +124,10 @@ y dificultad. El resto conserva el objetivo común adaptativo sin inventar entid
 
 `threat set` fuerza el valor efectivo en memoria para probar escenas y escalados; `threat clear`
 devuelve el cálculo adaptativo. `scene` crea o reutiliza un encuentro y salta directamente a una fase.
-El HUD es una barra estilo vanilla visible exclusivamente para OP2 y se controla con `hud on/off`.
+El HUD es una barra segmentada sin texto, situada debajo de la XP y sobre la hotbar. Los OP la ven por
+defecto y pueden habilitarla para un jugador concreto con `hud on <player>` o esconderla con `hud off`.
+El overlay requiere el JAR en el cliente que lo visualiza; la IA y el cálculo de threat siguen siendo
+server-sided.
 
 ## Instalación y compatibilidad
 
@@ -131,10 +135,10 @@ El HUD es una barra estilo vanilla visible exclusivamente para OP2 y se controla
 2. Coloca `threat-director-0.3.0.jar` en `mods` del servidor o de la instancia integrada.
 3. Inicia el mundo y ajusta `config/threatdirector.json` si quieres cambiar caps o preset.
 
-No requiere un mod de cliente. Es compatible con mundos dedicados y LAN; integraciones de claims,
-telemetría y otros contenidos son opcionales. Las explosiones, roturas y telarañas respetan las reglas
-del servidor. Para pruebas controladas, usa `threat set`, `scene engaging` o `scene climax`, y luego
-`threat clear`.
+El gameplay no requiere contenido adicional en el cliente, pero el cliente que quiera ver el overlay
+debe tener el mismo JAR. Es compatible con mundos dedicados y LAN; integraciones de claims, telemetría
+y otros contenidos son opcionales. Las explosiones, roturas y telarañas respetan las reglas del servidor.
+Para pruebas controladas, usa `threat set`, `scene engaging` o `scene climax`, y luego `threat clear`.
 
 ## Créditos y estado
 

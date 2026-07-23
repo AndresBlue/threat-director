@@ -45,7 +45,7 @@ dependencias obligatorias.
   permiten; `UNKNOWN` de claims falla cerrado.
 - API transaccional para adapters opcionales y claims con fallo cerrado.
 - Telemetría NDJSON local, acotada y desactivada por defecto.
-- Barra HUD vanilla exclusiva para OP2, sin paquetes personalizados ni mod cliente adicional.
+- Barra HUD opcional sin texto, sincronizada por paquete y visible en el hueco entre XP y hotbar.
 - Autoridad del servidor integrado: en LAN solo el host puede ser ancla de un inicio automático.
 
 El schema 3 permite creepers creados o reclutados por el director. Sus explosiones siguen las reglas
@@ -80,7 +80,8 @@ vanilla y `mobGriefing`; continúan sujetos a coste, cap, spawn seguro y Threat 
 
 Las mutaciones del director y las operaciones sobre otro jugador requieren nivel de permiso 2.
 `status`, `intensity`, `threat`, `roles` y `budget` conservan sus consultas libres para el propio
-jugador. El HUD, su consulta y sus comandos `on/off` son exclusivos de OP2.
+jugador. El HUD se muestra a OP por defecto; sus comandos `on/off` son OP2 y pueden habilitar jugadores
+concretos.
 
 ```text
 /threatdirector status [player]
@@ -134,13 +135,13 @@ para formar el mínimo contextual rechazan la escena con una causa clara, en vez
 
 ## HUD de amenaza
 
-Cada operador conectado que no esté en modo espectador recibe una barra segmentada de diez partes con
-su threat efectivo de `0–100`. Cambia de verde a amarillo, rojo y púrpura para los niveles bajo,
-táctico, alto y extremo. Un valor administrativo añade `FORZADO` al título. Durante un encuentro
-multijugador, los participantes OP ven la intensidad compartida y los secundarios reciben la
-marca `GRUPO`. La barra usa `ServerBossBar`, por lo que funciona con el HUD vanilla y no requiere una
-implementación gráfica en el cliente. Está visible por defecto para OP2 y se controla con
-`/threatdirector hud on|off`, también restringido a OP2.
+Cada operador conectado que no esté en modo espectador recibe una barra segmentada sin texto, colocada
+debajo de la barra de experiencia y encima de la hotbar. Cambia de verde a amarillo, rojo y púrpura
+según el threat efectivo. Un OP puede habilitarla para cualquier jugador con
+`/threatdirector hud on <player>` u ocultarla con `hud off`; la preferencia es individual. El servidor
+sincroniza únicamente progreso, color y visibilidad mediante un paquete pequeño; la lógica de threat
+continúa siendo server-sided. Para ver el overlay el cliente debe tener el JAR, aunque la IA del
+servidor sigue funcionando para clientes sin el mod.
 
 Los adapters concretos de Prominence II, élites y patrones adicionales quedan para iteraciones
 posteriores. El núcleo actual funciona sin ninguno de ellos.
@@ -160,8 +161,8 @@ rechaza y mantiene la última snapshot válida.
 En un mundo abierto por LAN basta con instalar Threat Director y Fabric API en la instancia del
 anfitrión. En la selección automática, solo un host elegible puede ser ancla; un invitado nunca abre
 por sí solo un encuentro automático. Un OP todavía puede dirigir `start` o `scene` explícitamente a
-otro jugador. Los invitados pueden conectarse
-sin el mod porque no se registran contenidos ni paquetes personalizados; otros mods instalados en esa
+otro jugador. Los invitados pueden conectarse sin el mod porque no se registran contenidos de juego;
+solo el invitado que quiera ver el overlay necesita el JAR cliente. Otros mods instalados en esa
 instancia sí pueden imponer requisitos propios.
 
 ## Desarrollo

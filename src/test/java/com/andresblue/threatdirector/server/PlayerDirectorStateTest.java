@@ -76,6 +76,7 @@ class PlayerDirectorStateTest {
     void threatBarIsVisibleOnlyToOperatorsWhoHaveNotHiddenIt() {
         assertTrue(ThreatHudService.shouldDisplay(true, false, true));
         assertFalse(ThreatHudService.shouldDisplay(false, false, true));
+        assertTrue(ThreatHudService.shouldDisplay(false, false, true, true));
         assertFalse(ThreatHudService.shouldDisplay(true, true, true));
         assertFalse(ThreatHudService.shouldDisplay(true, false, false));
     }
