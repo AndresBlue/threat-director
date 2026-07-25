@@ -2,13 +2,13 @@
 
 ## Alcance del documento
 
-Esta matriz define la aceptación manual de Threat Director 0.3.5. Configuración, runtime, comandos,
+Esta matriz define la aceptación manual de Threat Director 1.1. Configuración, runtime, comandos,
 habilidades y controlador están conectados; los casos de Prominence II y adapters concretos se marcan
 explícitamente como fases posteriores.
 
 ## Preparación
 
-1. Ejecutar `gradlew.bat clean build` y comprobar `build/libs/threat-director-0.3.5.jar`.
+1. Ejecutar `gradlew.bat clean build` y comprobar `build/libs/threat-director-mc1.20.1-1.1.jar`.
 2. Iniciar una instancia Fabric 1.20.1 con solo Fabric API y Threat Director en el lado servidor.
    Preparar además un cliente remoto 1.20.1 sin Threat Director para los casos LAN/dedicado.
 3. Crear un mundo de pruebas en dificultad Normal, cheats activos y clima despejado.
@@ -509,7 +509,7 @@ Caso de fase posterior: simular respuesta `UNKNOWN` de claims.
 Esperado: toda acción destructiva real del módulo zombie o de telarañas se deniega. BreachPlanner no
 modifica bloques en ningún caso y su simulación explica que no pudo demostrar permiso.
 
-## Criterio de cierre de 0.3.5
+## Criterio de cierre de 1.1
 
 - Build y JUnit pasan desde checkout limpio; los GameTests están planificados como siguiente capa.
 - Cliente integrado y servidor dedicado deben arrancar sin mods externos; ambos son escenarios de

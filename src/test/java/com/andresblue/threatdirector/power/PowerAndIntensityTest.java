@@ -7,6 +7,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PowerAndIntensityTest {
     @Test
@@ -39,6 +40,16 @@ class PowerAndIntensityTest {
         assertEquals(20.0,
                 AdventureIntensityCalculator.smooth(0, 100, 100, 100, .20),
                 1.0e-12);
+    }
+
+    @Test
+    void playTimeAndExperienceCreateProgressionPressureWithoutGear() {
+        double initial = AdventureIntensityCalculator.calculate(signals(0.0, 0.0)).targetIntensity();
+        double progressed = AdventureIntensityCalculator.calculate(signals(1.0, 1.0)).targetIntensity();
+
+        assertEquals(5.0, initial, 1.0e-12);
+        assertEquals(45.0, progressed, 1.0e-12);
+        assertTrue(progressed > initial);
     }
 
     @Test
@@ -76,5 +87,14 @@ class PowerAndIntensityTest {
                 0, 1, 3, 0, false, false,
                 0, 0, false, false, 20,
                 0, 0, 0, 0, .10, 3, 0);
+    }
+
+    private static AdventureSignals signals(double playTimeProgress, double experienceProgress) {
+        return new AdventureSignals(
+                List.of(0.0),
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                0L, 0L, 100.0, 0, 0.0, 0.0,
+                20.0, 20.0, 0.0, 0.0, false, 12_000L,
+                0.0, 0.0, playTimeProgress, experienceProgress);
     }
 }

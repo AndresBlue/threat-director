@@ -1,11 +1,11 @@
-# Threat Director — arquitectura de la versión 0.3.5
+# Threat Director — arquitectura de la versión 1.1
 
 ## Estado y plataforma
 
 El repositorio apunta a Minecraft 1.20.1 con Fabric Loader 0.18.4, Yarn
 1.20.1+build.10, Fabric API 0.92.11+1.20.1 y bytecode Java 17. La máquina de
 desarrollo inspeccionada dispone de Temurin 21, que compila con `--release 17`.
-La lógica de la versión 0.3.5 es autoritativa del servidor. En dedicado y en LAN basta con instalarlo
+La lógica de la versión 1.1 es autoritativa del servidor. En dedicado y en LAN basta con instalarlo
 en el lado que aloja el servidor para ejecutar IA, threat y encuentros; los clientes remotos pueden
 conectarse sin el mod. El overlay opcional sí requiere el JAR en el cliente que quiera verlo: el host
 integrado lo necesita porque también ejecuta el servidor y renderiza su propio HUD.
@@ -15,7 +15,7 @@ La configuración descrita aquí ya tiene modelo, validación y carga en
 `ThreatDirectorMod` se realiza en el bootstrap del runtime; se mantiene fuera del paquete de
 configuración para que el cargador pueda probarse sin iniciar Minecraft.
 
-## Alcance de 0.3.5
+## Alcance de 1.1
 
 El runtime coordina grupos vanilla y añade capacidades server-side por dificultad. Incluye:
 
@@ -30,7 +30,7 @@ El runtime coordina grupos vanilla y añade capacidades server-side por dificult
 - Comandos administrativos y telemetría local opcional.
 - Perfiles Easy vanilla, Normal parcial y Hard Apocalypse para familias hostiles vanilla.
 
-No forman parte de 0.3.5 los mobs externos, adapters concretos de Prominence II, élites, PvPvE ni
+No forman parte de 1.1 los mobs externos, adapters concretos de Prominence II, élites, PvPvE ni
 reconocimiento avanzado de estructuras. `BreachPlanner` no ejecuta roturas, pero
 los zombies Hard sí pueden retirar una obstrucción compatible mediante `MobGriefingGuard`; las
 telarañas Hard usan el mismo guard.
@@ -86,8 +86,8 @@ contexto      0..10
 penalización  0..30
 ```
 
-La intensidad cruda se limita a 0..100 y se suaviza con EMA. Una banda no cambia hasta superar la
-histéresis. En 0.3.5, equipo, salud, absorción, inventario y contexto se capturan cada 100 ticks;
+La intensidad cruda se limita a 0..100 y se suaviza con EMA. El objetivo combina poder del jugador, entorno, preparacion, dominio, estres, carga, tiempo de juego persistente y XP. El tiempo llega a su presion maxima a las seis horas y el XP al nivel 30, evitando que retrasar el equipamiento congele la dificultad inicial. Una banda no cambia hasta superar la
+histéresis. En 1.1, equipo, salud, absorción, inventario y contexto se capturan cada 100 ticks;
 una caché invalidada por eventos de equipo es una optimización posterior.
 
 `PlayerDirectorState` mantiene intensidad, banda, memoria reciente, muerte y cooldown; el mapa de
@@ -247,7 +247,7 @@ un provider que falla deniegan la acción.
 
 Logout, cambio de dimensión, unload y cambios de salud se detectan al resolver UUID y validar el
 estado vivo en cada ciclo del controlador. Fabric API 1.20.1 no dispone de
-`ServerLivingEntityEvents.AFTER_DAMAGE`; 0.3.5 infiere daño sin cancelarlo mediante diferencias de
+`ServerLivingEntityEvents.AFTER_DAMAGE`; 1.1 infiere daño sin cancelarlo mediante diferencias de
 salud/absorción y mantiene una comprobación directa de salud crítica en el scheduler.
 
 ## Configuración
@@ -298,7 +298,7 @@ completo con la configuración recargada.
 
 ## Persistencia y telemetría
 
-En 0.3.5, intensidad, memoria reciente y cooldown viven en memoria y se limpian al reiniciar el
+En 1.1, intensidad, memoria reciente y cooldown viven en memoria y se limpian al reiniciar el
 servidor. Los controladores tampoco se serializan: tras un reinicio sus mobs quedan completamente
 en manos de vanilla. Persistir el resumen por UUID mediante `PersistentState` es trabajo de Fase 2.
 
@@ -346,7 +346,7 @@ asumir un ID del modpack.
 
 ## Estrategia de pruebas
 
-- La versión 0.3.5 ejecuta JUnit puro para config, intensidad, smoothing, budget, roles, patrones,
+- La versión 1.1 ejecuta JUnit puro para config, intensidad, smoothing, budget, roles, patrones,
   FSM, compatibilidad, telemetría, simulación de breach, gobernador y políticas de habilidades.
 - Los GameTests de goals, spawn seguro y lifecycle quedan como siguiente nivel de cobertura.
 - El arranque dedicado se prueba con solo Fabric API y Threat Director.
@@ -370,7 +370,7 @@ solo publica sus extensiones si `register` termina por completo; una excepción 
 
 ## Riesgos de compatibilidad
 
-| Riesgo | Mitigación en 0.3.5 |
+| Riesgo | Mitigación en 1.1 |
 | --- | --- |
 | Conflicto con IA de otro mod | Goals acotados por dificultad; la capa táctica queda inactiva sin orden |
 | Pathfinding costoso | Cinco paths base por mob, uno contextual extra con peligro alto, 192 operaciones globales y planificación espaciada |

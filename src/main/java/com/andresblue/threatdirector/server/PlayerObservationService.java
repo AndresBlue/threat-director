@@ -13,6 +13,7 @@ import net.minecraft.registry.RegistryKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.stat.Stats;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraft.world.GameMode;
@@ -25,6 +26,11 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class PlayerObservationService {
+    /** Six hours of persisted play time reaches the maximum time-based pressure contribution. */
+    private static final double PLAY_TIME_FOR_FULL_PRESSURE_TICKS = 6.0 * 60.0 * 60.0 * 20.0;
+    /** Level 30 reaches the maximum experience-based pressure contribution. */
+    private static final double EXPERIENCE_LEVEL_FOR_FULL_PRESSURE = 30.0;
+
     private final PowerEvaluationPipeline powerPipeline;
     private final Map<UUID, PlayerDirectorState> states = new HashMap<>();
     private final Map<UUID, Long> lastSeenTicks = new HashMap<>();
@@ -101,6 +107,10 @@ public final class PlayerObservationService {
         long sinceCombat = elapsedOrCap(tick, state.lastCombatTick(), 2_400L);
         boolean recentDeath = state.lastDeathTick() != Long.MIN_VALUE;
         long sinceDeath = recentDeath ? Math.max(0L, tick - state.lastDeathTick()) : 12_000L;
+        double playTimeProgress = clamp01(playerPlayTimeTicks(player) / PLAY_TIME_FOR_FULL_PRESSURE_TICKS);
+        double experienceProgress = clamp01(
+                (Math.max(0, player.experienceLevel) + Math.max(0.0F, player.experienceProgress))
+                        / EXPERIENCE_LEVEL_FOR_FULL_PRESSURE);
 
         int recentWindow = config.intensity().recentDamageWindowTicks();
         AdventureSignals signals = new AdventureSignals(
@@ -125,7 +135,9 @@ public final class PlayerObservationService {
                 recentDeath,
                 sinceDeath,
                 entityLoad,
-                planningLoad);
+                planningLoad,
+                playTimeProgress,
+                experienceProgress);
         AdventureIntensityBreakdown breakdown = AdventureIntensityCalculator.calculate(
                 signals,
                 config.intensity().groupCap(),
@@ -197,6 +209,11 @@ public final class PlayerObservationService {
 
     private static long elapsedOrCap(long now, long then, long cap) {
         return then == Long.MIN_VALUE ? cap : Math.min(cap, Math.max(0L, now - then));
+    }
+
+    private static long playerPlayTimeTicks(ServerPlayerEntity player) {
+        return Math.max(0L, player.getStatHandler().getStat(
+                Stats.CUSTOM.getOrCreateStat(Stats.PLAY_TIME)));
     }
 
     private static double square(double value) {

@@ -24,7 +24,9 @@ public record AdventureSignals(
         boolean hasRecentDeath,
         long ticksSinceDeath,
         double entityLoad,
-        double planningLoad
+        double planningLoad,
+        double playTimeProgress,
+        double experienceProgress
 ) {
     public AdventureSignals {
         individualPowerScores = List.copyOf(individualPowerScores);

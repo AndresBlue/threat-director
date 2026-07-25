@@ -337,7 +337,7 @@ public final class ThreatDirectorCommands {
                     groupNote));
         }
         return feedback(source, String.format(Locale.ROOT,
-                "Intensidad individual %.2f%s, adaptativa %.2f (objetivo %.2f): poder %.2f, entorno %.2f, preparación %.2f, dominio %.2f, estrés %.2f, carga %.2f%s",
+                "Intensidad individual %.2f%s, adaptativa %.2f (objetivo %.2f): poder %.2f, entorno %.2f, preparación %.2f, dominio %.2f, estrés %.2f, carga %.2f, tiempo %.2f, XP %.2f, progresion %.2f%s",
                 state.intensity(),
                 state.hasIntensityOverride() ? " (FORZADO)" : "",
                 state.adaptiveIntensity(),
@@ -348,6 +348,9 @@ public final class ThreatDirectorCommands {
                 state.breakdown().dominance(),
                 state.breakdown().distress(),
                 state.breakdown().load(),
+                state.breakdown().playTimeProgress(),
+                state.breakdown().experienceProgress(),
+                state.breakdown().progression(),
                 groupNote));
     }
 

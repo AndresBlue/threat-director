@@ -17,13 +17,15 @@ El núcleo funciona sin mods de contenido. Las futuras integraciones con claims,
 accesorios, magia y Prominence II se cargan mediante una API opcional y no son
 dependencias obligatorias.
 
-## Versión 0.3.5
+## Versión 1.1
 
-El versionado sigue `MAJOR.MINOR.PATCH`: los cambios grandes de funcionalidad incrementan `MINOR`
-(por ejemplo, `0.4.0`), mientras que correcciones y hotfixes incrementan `PATCH` (por ejemplo,
-`0.3.6`). La siguiente entrega parte de `0.3.5`.
+Esta entrega se publica como `threat-director-mc1.20.1-1.1.jar`. Las próximas versiones continuarán
+la numeración según el alcance del cambio: las correcciones pequeñas incrementan la revisión y las
+funcionalidades grandes abren una nueva versión de funcionalidad.
 
 - Adventure Intensity explicable, suavizada y calculada por jugador/grupo.
+- El tiempo de juego persistente y el nivel de XP añaden presión progresiva aunque el jugador retrase
+  su equipamiento: seis horas alcanzan la contribución máxima de tiempo y el nivel 30 la de XP.
 - Threat Budget entero de por vida: base más reserva de refuerzos, sin reciclar el coste de las bajas.
 - Tres escalones deliberados: Easy conserva habilidades vanilla y no inicia encuentros automáticos;
   Normal aplica una versión parcial; Hard activa el modo Apocalypse completo.
@@ -155,11 +157,11 @@ posteriores. El núcleo actual funciona sin ninguno de ellos.
 
 1. Preparar Minecraft 1.20.1 con Fabric Loader 0.18.4 y Java 17.
 2. Instalar Fabric API 0.92.11+1.20.1.
-3. Copiar `threat-director-0.3.5.jar` a la carpeta `mods` del servidor o de la instancia integrada.
+3. Copiar `threat-director-mc1.20.1-1.1.jar` a la carpeta `mods` del servidor o de la instancia integrada.
 4. Iniciar una vez para crear `config/threatdirector.json` y ajustar el preset si es necesario.
 
 La configuración actual usa schema 3. Un archivo schema 1 o 2 que conserve exactamente su preset
-original migra a todos los defaults de 0.3.5. Un archivo personalizado conserva sus secciones y
+original migra a todos los defaults de 1.1. Un archivo personalizado conserva sus secciones y
 valores y actualiza `schemaVersion`; si ya no satisface una invariante de seguridad, la recarga lo
 rechaza y mantiene la última snapshot válida.
 

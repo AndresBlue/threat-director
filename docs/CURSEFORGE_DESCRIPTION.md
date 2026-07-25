@@ -22,8 +22,10 @@ jugar sin el mod, pero necesitan el JAR para ver su propia barra.
 ## Threat por jugador
 
 El threat es un valor de 0 a 100 calculado a partir de equipo, salud, absorción, inventario, entorno,
-preparación y carga reciente. Se suaviza para evitar saltos artificiales y se consulta de forma
+preparación, tiempo de juego persistente, XP y carga reciente. Se suaviza para evitar saltos artificiales y se consulta de forma
 individual: un jugador nuevo no hereda automáticamente el castigo de su compañero equipado.
+
+El tiempo de juego aporta presión incluso si el jugador permanece con equipo básico: seis horas alcanzan su contribución máxima. El nivel de XP también aporta una progresión adicional hasta el nivel 30, por lo que retrasar el equipamiento no mantiene el mundo en su estado inicial para siempre.
 
 Las habilidades extraordinarias comienzan a aparecer sobre 35 de threat. Por debajo de ese umbral el
 comportamiento sigue siendo muy cercano a vanilla. En Hard, el progreso completo alcanza los rangos
@@ -134,7 +136,7 @@ server-sided.
 ## Instalación y compatibilidad
 
 1. Instala Fabric Loader, Fabric API y Java 17.
-2. Coloca `threat-director-0.3.5.jar` en `mods` del servidor o de la instancia integrada.
+2. Coloca `threat-director-mc1.20.1-1.1.jar` en `mods` del servidor o de la instancia integrada.
 3. Inicia el mundo y ajusta `config/threatdirector.json` si quieres cambiar caps o preset.
 
 El gameplay no requiere contenido adicional en el cliente, pero el cliente que quiera ver el overlay
@@ -144,6 +146,6 @@ Para pruebas controladas, usa `threat set`, `scene engaging` o `scene climax`, y
 
 ## Créditos y estado
 
-Threat Director 0.3.x se apoya en entidades y navegación vanilla, con lógica adicional aislada en el
+Threat Director 1.1 se apoya en entidades y navegación vanilla, con lógica adicional aislada en el
 servidor. El objetivo es que la amenaza se perciba como una inteligencia colectiva, no como simples
 bonificadores de vida o daño.

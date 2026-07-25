@@ -7,5 +7,8 @@ public record AdventureIntensityBreakdown(
         double dominance,
         double distress,
         double load,
+        double playTimeProgress,
+        double experienceProgress,
+        double progression,
         double targetIntensity
 ) {}

@@ -82,6 +82,6 @@ class PlayerDirectorStateTest {
     }
 
     private static AdventureIntensityBreakdown breakdown() {
-        return new AdventureIntensityBreakdown(0.4, 0.5, 0.6, 0.0, 0.0, 0.0, 50.0);
+        return new AdventureIntensityBreakdown(0.4, 0.5, 0.6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 50.0);
     }
 }
