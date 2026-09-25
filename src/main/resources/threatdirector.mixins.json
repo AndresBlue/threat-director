@@ -5,14 +5,18 @@
   "mixins": [
     "MobEntityAccessor",
     "AbstractSkeletonEntityMixin",
+    "DrownedEntityMixin",
+    "DrownedTridentBoatMixin",
     "HomingArrowMixin",
     "CreeperEntityMixin",
     "EntityStepSoundMixin",
     "EndermanDifficultyMixin",
     "LivingEntityDifficultyMixin",
     "MobEntityDifficultyMixin",
+    "ServerWorldGameEventMixin",
     "SpiderDifficultyMixin",
-    "ZombieDifficultyMixin"
+    "ZombieDifficultyMixin",
+    "ServerPlayerSleepMixin"
   ],
   "client": [
     "InGameHudLayoutMixin"

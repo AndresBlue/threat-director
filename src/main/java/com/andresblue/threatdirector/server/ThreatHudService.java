@@ -131,20 +131,20 @@ public final class ThreatHudService implements AutoCloseable {
         double intensity = Double.isFinite(state.intensity())
                 ? Math.max(0.0, Math.min(100.0, state.intensity()))
                 : 0.0;
-        String suffix = state.hasIntensityOverride() ? " · FORZADO" : "";
+        String suffix = state.hasIntensityOverride() ? " - FORCED" : "";
         if (groupThreat) {
-            suffix += " · GRUPO";
+            suffix += " - GROUP";
         }
-        String title = "THREAT " + Math.round(intensity) + "% · " + label(state.band()) + suffix;
+        String title = "THREAT " + Math.round(intensity) + "% - " + label(state.band()) + suffix;
         return new HudPresentation((float) (intensity / 100.0), title, color(state.band()));
     }
 
     private static String label(IntensityBand band) {
         return switch (band) {
-            case LOW -> "BAJO";
-            case TACTICAL -> "TÁCTICO";
-            case HIGH -> "ALTO";
-            case EXTREME -> "EXTREMO";
+            case LOW -> "LOW";
+            case TACTICAL -> "TACTICAL";
+            case HIGH -> "HIGH";
+            case EXTREME -> "EXTREME";
         };
     }
 

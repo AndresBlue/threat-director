@@ -3,6 +3,7 @@ package com.andresblue.threatdirector.mixin;
 import com.andresblue.threatdirector.ThreatDirectorMod;
 import com.andresblue.threatdirector.apocalypse.ApocalypseSkeletonModule;
 import com.andresblue.threatdirector.apocalypse.SkeletonCombatPolicy;
+import com.andresblue.threatdirector.bloodmoon.BloodMoonModule;
 import com.andresblue.threatdirector.server.ThreatScaling;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.effect.StatusEffect;
@@ -42,12 +43,15 @@ public abstract class AbstractSkeletonEntityMixin {
         AbstractSkeletonEntity skeleton = (AbstractSkeletonEntity) (Object) this;
         World world = skeleton.getWorld();
         int difficultyId = world.getDifficulty().getId();
+        boolean bloodMoon = BloodMoonModule.isActive(world);
         if (world.isClient
-                || !ThreatDirectorMod.isEnabled()
+                || !ThreatDirectorMod.isModdedEnabled()
+                || !ThreatDirectorMod.config().modded().skeleton().enabled()
+                || !ThreatDirectorMod.config().modded().skeleton().predictiveAim()
                 || !ApocalypseSkeletonModule.isRegistered()
                 || !SkeletonCombatPolicy.isEnhancedDifficulty(difficultyId)
                 || (target instanceof ServerPlayerEntity player
-                && ThreatScaling.playerThreat(player) < ThreatScaling.ACTIVATION_THREAT)) {
+                && ThreatScaling.playerThreat(player) < ThreatScaling.activationThreat())) {
             return;
         }
 
@@ -65,10 +69,11 @@ public abstract class AbstractSkeletonEntityMixin {
                 target.getZ(),
                 targetVelocity.x,
                 targetVelocity.y,
-                targetVelocity.z);
+                targetVelocity.z,
+                bloodMoon);
         projectile.setVelocity(aim.x(), aim.y(), aim.z(), aim.speed(), aim.divergence());
         projectile.addCommandTag(ApocalypseSkeletonModule.ENHANCED_ARROW_TAG);
-        addVanillaArrowEffect(skeleton, projectile, difficultyId, target);
+        addVanillaArrowEffect(skeleton, projectile, difficultyId, target, bloodMoon);
 
         skeleton.playSound(
                 SoundEvents.ENTITY_SKELETON_SHOOT,
@@ -82,19 +87,21 @@ public abstract class AbstractSkeletonEntityMixin {
             AbstractSkeletonEntity skeleton,
             PersistentProjectileEntity projectile,
             int difficultyId,
-            LivingEntity target) {
+            LivingEntity target,
+            boolean bloodMoon) {
         if (!(projectile instanceof ArrowEntity arrow)) {
             return;
         }
 
         if (target instanceof ServerPlayerEntity player
-                && ThreatScaling.playerThreat(player) < ThreatScaling.ACTIVATION_THREAT) {
+                && ThreatScaling.playerThreat(player) < ThreatScaling.activationThreat()) {
             return;
         }
         SkeletonCombatPolicy.ArrowPayload payload = SkeletonCombatPolicy.arrowPayload(
                 difficultyId,
                 skeleton.getRandom().nextFloat(),
-                skeleton.getRandom().nextFloat());
+                skeleton.getRandom().nextFloat(),
+                bloodMoon);
         if (!payload.appliesEffect()) {
             return;
         }

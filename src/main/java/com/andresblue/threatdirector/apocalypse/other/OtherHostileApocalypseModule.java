@@ -48,6 +48,15 @@ public final class OtherHostileApocalypseModule {
                 )
         );
         accessor.threatdirector$getTargetSelector().add(
+                0,
+                new DifficultyPlayerTargetGoal(
+                        mob,
+                        Difficulty.HARD.getId(),
+                        OtherHostilePolicy.pressure(Tier.HARD, true),
+                        true
+                )
+        );
+        accessor.threatdirector$getTargetSelector().add(
                 1,
                 new DifficultyPlayerTargetGoal(
                         mob,

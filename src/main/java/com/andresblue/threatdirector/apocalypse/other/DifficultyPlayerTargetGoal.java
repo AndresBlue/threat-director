@@ -1,6 +1,6 @@
 package com.andresblue.threatdirector.apocalypse.other;
 
-import com.andresblue.threatdirector.ThreatDirectorMod;
+import com.andresblue.threatdirector.bloodmoon.BloodMoonModule;
 import com.andresblue.threatdirector.encounter.EncounterController;
 import com.andresblue.threatdirector.difficulty.ZombieDifficultyAbilities;
 import com.andresblue.threatdirector.server.ThreatScaling;
@@ -29,27 +29,39 @@ final class DifficultyPlayerTargetGoal extends ActiveTargetGoal<PlayerEntity> {
     private final int requiredDifficultyId;
     private final PressureProfile profile;
     private final ThreatScaling.TargetFamily targetFamily;
+    private final boolean bloodMoonProfile;
     private int nextScanAge;
 
     DifficultyPlayerTargetGoal(MobEntity mob, int requiredDifficultyId, PressureProfile profile) {
-        this(mob, requiredDifficultyId, profile, targetFamily(mob));
+        this(mob, requiredDifficultyId, profile, false);
+    }
+
+    DifficultyPlayerTargetGoal(
+            MobEntity mob,
+            int requiredDifficultyId,
+            PressureProfile profile,
+            boolean bloodMoonProfile) {
+        this(mob, requiredDifficultyId, profile, targetFamily(mob), bloodMoonProfile);
     }
 
     private DifficultyPlayerTargetGoal(
             MobEntity mob,
             int requiredDifficultyId,
             PressureProfile profile,
-            ThreatScaling.TargetFamily targetFamily) {
+            ThreatScaling.TargetFamily targetFamily,
+            boolean bloodMoonProfile) {
         super(mob, PlayerEntity.class, 1, profile.requiresVisibility(), false, VALID_PLAYER);
         this.requiredDifficultyId = requiredDifficultyId;
         this.profile = profile;
         this.targetFamily = targetFamily;
+        this.bloodMoonProfile = bloodMoonProfile;
         this.nextScanAge = mob.age + Math.floorMod(mob.getUuid().hashCode(), profile.targetScanIntervalTicks());
         setMaxTimeWithoutVisibility(profile.unseenMemoryTicks());
         targetPredicate
-                .setBaseMaxDistance(ThreatScaling.maximumTargetRange(targetFamily, requiredDifficultyId))
+                .setBaseMaxDistance(ThreatScaling.maximumTargetRange(
+                        targetFamily, requiredDifficultyId, bloodMoonProfile))
                 .setPredicate(this::isEligiblePlayer);
-        if (requiredDifficultyId >= 3) {
+        if (!profile.requiresVisibility()) {
             targetPredicate.ignoreVisibility();
         }
     }
@@ -86,12 +98,13 @@ final class DifficultyPlayerTargetGoal extends ActiveTargetGoal<PlayerEntity> {
         LivingEntity currentTarget = mob.getTarget();
         if (currentTarget instanceof ServerPlayerEntity player) {
             double scaled = ThreatScaling.targetRange(playerFamily(), requiredDifficultyId,
-                    ThreatScaling.playerThreat(player));
+                    ThreatScaling.playerThreat(player), bloodMoonProfile);
             if (scaled > 0.0) {
                 return scaled;
             }
         }
-        return ThreatScaling.maximumTargetRange(targetFamily, requiredDifficultyId);
+        return ThreatScaling.maximumTargetRange(
+                targetFamily, requiredDifficultyId, bloodMoonProfile);
     }
 
     private boolean isEligiblePlayer(LivingEntity living) {
@@ -102,7 +115,8 @@ final class DifficultyPlayerTargetGoal extends ActiveTargetGoal<PlayerEntity> {
         double range = ThreatScaling.targetRange(
                 targetFamily,
                 requiredDifficultyId,
-                ThreatScaling.playerThreat(player));
+                ThreatScaling.playerThreat(player),
+                bloodMoonProfile);
         return range > 0.0 && mob.squaredDistanceTo(player) <= range * range;
     }
 
@@ -130,8 +144,12 @@ final class DifficultyPlayerTargetGoal extends ActiveTargetGoal<PlayerEntity> {
     }
 
     private boolean hasRequiredDifficulty() {
-        return ThreatDirectorMod.isEnabled()
-                && !mob.getCommandTags().contains(EncounterController.MANAGED_TAG)
-                && mob.getWorld().getDifficulty().getId() == requiredDifficultyId;
+        if (!ThreatScaling.targetingEnabled(targetFamily)
+                || mob.getCommandTags().contains(EncounterController.MANAGED_TAG)
+                || mob.getWorld().getDifficulty().getId() != requiredDifficultyId) {
+            return false;
+        }
+        return requiredDifficultyId < 3
+                || BloodMoonModule.isActive(mob.getWorld()) == bloodMoonProfile;
     }
 }

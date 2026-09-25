@@ -1,5 +1,6 @@
 package com.andresblue.threatdirector.creeper;
 
+import com.andresblue.threatdirector.config.ConfigAccess;
 import java.util.Objects;
 
 /**
@@ -18,6 +19,10 @@ public final class ApocalypticCreeperPolicy {
     public static final int DASH_COOLDOWN_TICKS = 60;
     public static final double DASH_IMPULSE = 0.38D;
     public static final double DASH_MAX_HORIZONTAL_SPEED = 0.65D;
+    public static final int TARGET_MEMORY_TICKS = 20 * 45;
+    public static final double TARGET_MEMORY_MAX_DISTANCE_SQUARED = 48.0D * 48.0D;
+    public static final double BREACH_MAX_TARGET_DISTANCE_SQUARED = 28.0D * 28.0D;
+    public static final double BREACH_FUSE_DISTANCE_SQUARED = 3.0D * 3.0D;
 
     private static final double FACING_AWAY_DOT_THRESHOLD = -0.25D;
     private static final Profile VANILLA = new Profile(1.0D, 1.0D, false, false, false);
@@ -28,6 +33,20 @@ public final class ApocalypticCreeperPolicy {
     }
 
     public static Profile profile(Mode mode) {
+        if (mode != Mode.VANILLA && ConfigAccess.current().moddedEnabled()) {
+            var config = ConfigAccess.current().modded().creeper();
+            boolean apocalypse = mode == Mode.APOCALYPTIC;
+            return new Profile(
+                    config.rearSpeedBoost()
+                            ? apocalypse ? config.bloodMoonRearSpeedMultiplier()
+                            : config.ordinaryRearSpeedMultiplier() : 1.0,
+                    config.randomFuse()
+                            ? apocalypse ? config.bloodMoonMinimumFuseRatio()
+                            : config.ordinaryMinimumFuseRatio() : 1.0,
+                    config.silentSteps() && apocalypse,
+                    config.dashEnabled() && apocalypse,
+                    config.coordinatedBreaching() && apocalypse);
+        }
         return switch (Objects.requireNonNull(mode, "mode")) {
             case VANILLA -> VANILLA;
             case PARTIAL -> PARTIAL;
@@ -68,7 +87,8 @@ public final class ApocalypticCreeperPolicy {
                 && targetPresent
                 && targetFacesAway
                 && !priming
-                && distanceSquared <= REAR_APPROACH_MAX_DISTANCE_SQUARED;
+                && distanceSquared <= square(ConfigAccess.current().modded().creeper()
+                .rearApproachMaximumDistance());
     }
 
     /**
@@ -147,6 +167,48 @@ public final class ApocalypticCreeperPolicy {
                 && distanceSquared <= DASH_MAX_DISTANCE_SQUARED;
     }
 
+    public static boolean shouldRetainPlayerTarget(
+            boolean modEnabled,
+            int difficultyId,
+            double threat,
+            double activationThreat,
+            boolean playerAlive,
+            boolean sameWorld,
+            long memoryTicksRemaining,
+            double distanceSquared
+    ) {
+        return modEnabled
+                && difficultyId >= 2
+                && threat >= activationThreat
+                && playerAlive
+                && sameWorld
+                && memoryTicksRemaining > 0
+                && distanceSquared <= square(ConfigAccess.current().modded().creeper()
+                .targetMemoryMaximumDistance());
+    }
+
+    public static boolean shouldCoordinateBreach(
+            boolean modEnabled,
+            int difficultyId,
+            double threat,
+            double activationThreat,
+            boolean mobGriefing,
+            boolean targetAlive,
+            boolean targetVisible,
+            boolean targetSheltered,
+            double distanceSquared
+    ) {
+        return modEnabled
+                && difficultyId >= 3
+                && threat >= activationThreat
+                && mobGriefing
+                && targetAlive
+                && !targetVisible
+                && targetSheltered
+                && distanceSquared <= square(ConfigAccess.current().modded().creeper()
+                .breachMaximumTargetDistance());
+    }
+
     /**
      * Adds a horizontal impulse toward the target and clamps the resulting
      * speed. Collision handling remains entirely vanilla.
@@ -162,11 +224,16 @@ public final class ApocalypticCreeperPolicy {
             return new HorizontalVelocity(currentX, currentZ);
         }
 
-        double nextX = currentX + targetOffsetX / offsetLength * DASH_IMPULSE;
-        double nextZ = currentZ + targetOffsetZ / offsetLength * DASH_IMPULSE;
+        double impulse = ConfigAccess.current().moddedEnabled()
+                ? ConfigAccess.current().modded().creeper().dashImpulse() : DASH_IMPULSE;
+        double maximum = ConfigAccess.current().moddedEnabled()
+                ? ConfigAccess.current().modded().creeper().dashMaximumSpeed()
+                : DASH_MAX_HORIZONTAL_SPEED;
+        double nextX = currentX + targetOffsetX / offsetLength * impulse;
+        double nextZ = currentZ + targetOffsetZ / offsetLength * impulse;
         double nextSpeed = Math.hypot(nextX, nextZ);
-        if (nextSpeed > DASH_MAX_HORIZONTAL_SPEED) {
-            double scale = DASH_MAX_HORIZONTAL_SPEED / nextSpeed;
+        if (nextSpeed > maximum) {
+            double scale = maximum / nextSpeed;
             nextX *= scale;
             nextZ *= scale;
         }
@@ -197,5 +264,9 @@ public final class ApocalypticCreeperPolicy {
     }
 
     public record HorizontalVelocity(double x, double z) {
+    }
+
+    private static double square(double value) {
+        return value * value;
     }
 }

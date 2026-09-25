@@ -102,4 +102,31 @@ class ApocalypticCreeperPolicyTest {
                 <= ApocalypticCreeperPolicy.DASH_MAX_HORIZONTAL_SPEED + 1.0E-9D);
         assertTrue(velocity.x() > 0.0D);
     }
+
+    @Test
+    void targetMemorySurvivesWallsButNotDistanceDeathOrEasy() {
+        assertTrue(ApocalypticCreeperPolicy.shouldRetainPlayerTarget(
+                true, 3, 70.0, 35.0, true, true, 1, 16.0));
+        assertFalse(ApocalypticCreeperPolicy.shouldRetainPlayerTarget(
+                true, 1, 70.0, 35.0, true, true, 1, 16.0));
+        assertFalse(ApocalypticCreeperPolicy.shouldRetainPlayerTarget(
+                true, 3, 70.0, 35.0, false, true, 1, 16.0));
+        assertFalse(ApocalypticCreeperPolicy.shouldRetainPlayerTarget(
+                true, 3, 70.0, 35.0, true, true, 1,
+                ApocalypticCreeperPolicy.TARGET_MEMORY_MAX_DISTANCE_SQUARED + 1.0));
+    }
+
+    @Test
+    void breachRequiresHardThreatShelterBlockedLosAndGriefing() {
+        assertTrue(ApocalypticCreeperPolicy.shouldCoordinateBreach(
+                true, 3, 70.0, 35.0, true, true, false, true, 25.0));
+        assertFalse(ApocalypticCreeperPolicy.shouldCoordinateBreach(
+                true, 2, 70.0, 35.0, true, true, false, true, 25.0));
+        assertFalse(ApocalypticCreeperPolicy.shouldCoordinateBreach(
+                true, 3, 70.0, 35.0, false, true, false, true, 25.0));
+        assertFalse(ApocalypticCreeperPolicy.shouldCoordinateBreach(
+                true, 3, 70.0, 35.0, true, true, true, true, 25.0));
+        assertFalse(ApocalypticCreeperPolicy.shouldCoordinateBreach(
+                true, 3, 70.0, 35.0, true, true, false, false, 25.0));
+    }
 }

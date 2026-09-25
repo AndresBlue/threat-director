@@ -23,7 +23,9 @@ public abstract class EntityStepSoundMixin {
         Entity entity = (Entity) (Object) this;
         World world = entity.getWorld();
         if (!world.isClient()
-                && ThreatDirectorMod.isEnabled()
+                && ThreatDirectorMod.isModdedEnabled()
+                && ThreatDirectorMod.config().modded().creeper().enabled()
+                && ThreatDirectorMod.config().modded().creeper().silentSteps()
                 && world.getDifficulty() == Difficulty.HARD
                 && entity instanceof CreeperEntity) {
             callbackInfo.cancel();

@@ -1,12 +1,15 @@
 package com.andresblue.threatdirector.apocalypse.other;
 
+import com.andresblue.threatdirector.config.ConfigAccess;
 import java.util.Objects;
 
 /** Pure balance policy for vanilla hostile families not handled by dedicated modules. */
 public final class OtherHostilePolicy {
     private static final PressureProfile EASY_PRESSURE = new PressureProfile(0.0D, 0, 0, true);
     private static final PressureProfile NORMAL_PRESSURE = new PressureProfile(28.0D, 20, 60, true);
-    private static final PressureProfile HARD_PRESSURE = new PressureProfile(48.0D, 10, 240, false);
+    private static final PressureProfile HARD_PRESSURE = new PressureProfile(40.0D, 20, 120, true);
+    private static final PressureProfile BLOOD_MOON_PRESSURE =
+            new PressureProfile(48.0D, 10, 240, false);
     private static final AbilityRules DISABLED = new AbilityRules(
             0, 20, 0.0D, 0, 0, 0, 0.0D, 0.0D, 0.0D, 0.0D);
 
@@ -14,10 +17,14 @@ public final class OtherHostilePolicy {
     }
 
     public static PressureProfile pressure(Tier tier) {
+        return pressure(tier, false);
+    }
+
+    public static PressureProfile pressure(Tier tier, boolean bloodMoon) {
         return switch (Objects.requireNonNull(tier, "tier")) {
             case EASY -> EASY_PRESSURE;
             case NORMAL -> NORMAL_PRESSURE;
-            case HARD -> HARD_PRESSURE;
+            case HARD -> bloodMoon ? BLOOD_MOON_PRESSURE : HARD_PRESSURE;
         };
     }
 
@@ -25,6 +32,19 @@ public final class OtherHostilePolicy {
         Objects.requireNonNull(tier, "tier");
         Objects.requireNonNull(family, "family");
         if (tier == Tier.EASY || family == Family.OTHER) {
+            return DISABLED;
+        }
+        var config = ConfigAccess.current().modded().otherHostiles();
+        if (!ConfigAccess.current().moddedEnabled() || !config.enabled()
+                || !switch (family) {
+                    case WITCH_ILLAGER -> config.witchesAndIllagers();
+                    case AERIAL_FIRE -> config.aerialFireMobs();
+                    case GUARDIAN -> config.guardians();
+                    case DROWNED_HUSK -> config.drownedAndHusks();
+                    case SWARM -> config.swarms();
+                    case BRUTE -> config.brutes();
+                    case OTHER -> false;
+                }) {
             return DISABLED;
         }
 

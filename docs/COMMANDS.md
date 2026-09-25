@@ -1,559 +1,365 @@
-# Threat Director — guía completa de comandos
+# Threat Director 2.0 Command Reference
 
-Esta guía describe el árbol de comandos de Threat Director 1.1 para Minecraft 1.20.1. Todos los comandos son
-autoritativos del servidor y comienzan con `/threatdirector`.
+The root command is:
 
-## Convenciones
+```text
+/threatdirector
+```
 
-- `[player]` es un jugador conectado. Puede ser un nombre o un selector que resuelva exactamente
-  un jugador.
-- Cuando se omite `[player]`, el emisor debe ser un jugador. La consola debe usar una variante con
-  objetivo explícito cuando exista.
-- **OP2** significa nivel de permiso 2 o superior.
-- Los argumentos escritos entre `<...>` son obligatorios.
-- Los estados y escenas no distinguen mayúsculas de minúsculas.
-- Los comandos de lectura devuelven éxito con código `1`; los rechazos controlados devuelven `0` y
-  muestran el motivo en rojo.
+The routine surface is intentionally small: inspect or override threat, control the HUD, and enable
+OP chat logging. Administrative test operations live under `debug`.
 
-La regla de permisos es: las mutaciones del director y las operaciones sobre otro jugador requieren
-OP2. El HUD es una herramienta administrativa: los operadores lo ven por defecto y todas las ramas
-`hud`, incluida la preferencia propia, requieren OP2. Un OP puede habilitarlo para un jugador sin OP.
-Las consultas propias de estado, intensidad y threat continúan disponibles sin permisos.
+## Permissions and command sources
 
-## Resumen de sintaxis y permisos
+- Permission level 2 is required for every mutation, another player's data, HUD control, logging,
+  and debug operation.
+- A player may inspect their own threat without an explicit target when the command branch allows it.
+- The server console must provide a player argument for operations that require a world position or
+  player state.
+- Player arguments must refer to connected players.
+- Commands never bypass Peaceful, world borders, unloaded chunks, spawn protection, claims,
+  `mobGriefing`, health relief, hard population caps, or the Performance Governor.
 
-| Comando | Permiso | Consola | Propósito |
-| --- | ---: | --- | --- |
-| `/threatdirector status` | Libre | No | Resumen del jugador emisor |
-| `/threatdirector status <player>` | OP2 | Sí | Resumen de otro jugador |
-| `/threatdirector intensity` | Libre | No | Diagnóstico adaptativo individual |
-| `/threatdirector intensity <player>` | OP2 | Sí | Diagnóstico individual de otro jugador |
-| `/threatdirector threat` | Libre | No | Threat efectivo que coincide con el HUD |
-| `/threatdirector threat <player>` | OP2 | Sí | Threat efectivo de otro jugador o su grupo |
-| `/threatdirector threat set <0..100>` | OP2 | No | Fuerza el threat propio o grupal |
-| `/threatdirector threat set <0..100> <player>` | OP2 | Sí | Fuerza el threat del objetivo o dueño grupal |
-| `/threatdirector threat clear` | OP2 | No | Elimina el override propio o grupal |
-| `/threatdirector threat clear <player>` | OP2 | Sí | Elimina el override del objetivo o dueño grupal |
-| `/threatdirector hud` | OP2 | No | Consulta el HUD propio |
-| `/threatdirector hud <player>` | OP2 | Sí | Consulta el HUD de otro jugador |
-| `/threatdirector hud on\|off` | OP2 | No | Muestra u oculta el HUD propio |
-| `/threatdirector hud on\|off <player>` | OP2 | Sí | Cambia el HUD de otro jugador |
-| `/threatdirector start` | OP2 | No | Inicia un encuentro forzado en Stalking |
-| `/threatdirector start <player>` | OP2 | Sí | Inicia un encuentro para el objetivo |
-| `/threatdirector cancel` | OP2 | No | Envía el encuentro propio o grupal a Relief |
-| `/threatdirector cancel <player>` | OP2 | Sí | Cancela el encuentro que incluye al objetivo |
-| `/threatdirector cancel all` | OP2 | Sí | Envía todos los encuentros a Relief |
-| `/threatdirector phase <state>` | OP2 | No | Salta de fase dentro de un encuentro existente |
-| `/threatdirector phase <state> <player>` | OP2 | Sí | Salta la fase del encuentro del objetivo |
-| `/threatdirector scene <state>` | OP2 | No | Crea, fuerza o reinicia una escena de prueba |
-| `/threatdirector scene <state> <player>` | OP2 | Sí | Hace lo mismo para el encuentro del objetivo |
-| `/threatdirector roles` | Libre | No | Lista los roles de los mobs del encuentro |
-| `/threatdirector sectors` | OP2 | No | Visualiza posiciones tácticas con partículas |
-| `/threatdirector budget` | Libre | No | Muestra el ledger de Threat Budget |
-| `/threatdirector breach simulate` | OP2 | No | Ejecuta una simulación no destructiva |
-| `/threatdirector config reload` | OP2 | Sí | Recarga y valida la configuración JSON |
-| `/threatdirector integrations` | Libre | Sí | Resume integraciones y claims |
-| `/threatdirector performance` | Libre | Sí | Consulta el PerformanceGovernor |
-| `/threatdirector performance reset` | OP2 | Sí | Reinicia temporalmente el governor para pruebas |
-| `/threatdirector preset` | Libre | Sí | Muestra el preset activo |
-| `/threatdirector telemetry` | Libre | Sí | Muestra los contadores de telemetría local |
+## Command tree
 
-`roles`, `sectors`, `budget` y `breach simulate` no tienen argumento `[player]`; por ello deben
-ejecutarse dentro del juego. La consola puede usar los demás comandos que indiquen “Sí”, aportando
-un jugador explícito cuando sea necesario.
+```text
+/threatdirector threat [player]
+/threatdirector threat set <0..100> [player]
+/threatdirector threat clear [player]
 
-## Estado, intensity y threat
+/threatdirector hud [player]
+/threatdirector hud on|off [player]
 
-### `/threatdirector status [player]`
+/threatdirector logging status [player]
+/threatdirector logging on|off [player]
 
-Muestra threat efectivo y banda, modo adaptativo o forzado, marca de grupo, **presión de encuentro**
-y zona, poder individual, fase, cantidad de mobs y cooldown restante en ticks. En un encuentro
-multijugador, el threat, la presión y la fase pertenecen al ancla primaria; poder y cooldown siguen
-siendo propios del jugador consultado.
+/threatdirector debug status [player]
+/threatdirector debug intensity [player]
+/threatdirector debug start [player]
+/threatdirector debug cancel [player|all]
+/threatdirector debug phase <phase> [player]
+/threatdirector debug scene <scene> [player]
+/threatdirector debug roles [player]
+/threatdirector debug sectors [player]
+/threatdirector debug budget [player]
+/threatdirector debug breach simulate [player]
+/threatdirector debug config reload
+/threatdirector debug integrations
+/threatdirector debug performance
+/threatdirector debug performance reset
+/threatdirector debug preset
+/threatdirector debug telemetry
+```
 
-Sin argumento, cualquier jugador puede consultar su estado. Consultar a otro requiere OP2.
+Legacy aliases may remain for compatibility, but new documentation and support should use the tree
+above.
 
-### `/threatdirector intensity [player]`
-
-Es el diagnóstico **individual**. No es necesariamente idéntico a la barra de un participante
-secundario. Informa intensidad efectiva individual, override, pista adaptativa, objetivo crudo,
-poder, entorno, preparación, dominio, estrés y carga. Si el jugador es secundario, añade por separado
-el threat del HUD grupal y el nombre del dueño.
-
-Antes de la primera muestra puede indicar que todavía no existe un desglose. El muestreo ocurre según
-`intensity.sampleIntervalTicks` —100 ticks en `VANILLA_PLUS`— y no cada frame del HUD.
+## Threat inspection
 
 ### `/threatdirector threat [player]`
 
-Consulta el threat efectivo `0..100` que usa el HUD. Las bandas son:
+Shows the effective threat value, its band, and whether the value is adaptive or forced. When the
+requested player is a secondary participant in a shared encounter, the command reports the primary
+owner whose threat currently drives that encounter.
 
-- `LOW`: menos de 40;
-- `TACTICAL`: 40 a menos de 65;
-- `HIGH`: 65 a menos de 85;
-- `EXTREME`: 85 a 100.
+Threat bands are:
 
-El valor adaptativo usa suavizado e histéresis, por lo que la banda puede tardar deliberadamente en
-subir o bajar. Un override usa directamente los umbrales anteriores. Durante un encuentro grupal,
-un secundario consulta el estado del objetivo primario y recibe `compartido con <nombre>`.
+- `LOW`: below 35;
+- `GUARDED`: 35 to below 50;
+- `TACTICAL`: 50 to below 65;
+- `HIGH`: 65 to below 85;
+- `EXTREME`: 85 to 100.
 
-La presión de encuentro no sustituye la barra. Es la intensidad que usa la composición táctica tras
-combinar el threat adaptativo con dificultad y entorno. Easy conserva habilidades vanilla y tiene
-probabilidad automática cero; Normal activa presión y habilidades parciales; Hard activa Apocalypse.
-Noche, luz `<=7` y cueva aumentan frecuencia, cap, quorum, atacantes simultáneos, replanning y refuerzos.
-Un override OP conserva exactamente su número y no recibe esta bonificación de intensidad, aunque
-Hard y la zona todavía determinan la forma táctica y el hard cap.
+Adaptive values use smoothing and hysteresis, so a band may intentionally lag behind a sudden
+equipment or environment change.
 
-Referencia de los defaults schema 3 de `VANILLA_PLUS`, antes de multiplicadores de grupo o límites
-de budget. Cada scan ocurre cada `40` ticks:
+### `/threatdirector debug status [player]`
 
-| Contexto | Hazard | Ajuste adaptativo | Chance/scan | Cap | Mínimo | Melee | Replan | Refuerzos | Cooldown |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Easy, superficie | .25 | −5 | 0 % | 6 | 4 | 2 | 25 t | ninguno | ×1.50 |
-| Normal, superficie | .50 | 0 | 9 % | 32 | 11 | 8 | 20 t | 4, hasta 6, cada 150 t | ×1.00 |
-| Hard, superficie | .75 | +5 | 30 % | 64 | 23 | 23 | 15 t | 13, hasta 10, cada 100 t | ×.35 |
-| Hard, peligro completo | 1.00 | +10 | 60 % | 96 | 34 | 34 | 10 t | 20, hasta 10, cada 80 t | ×.15 |
+Shows a compact operational snapshot:
 
-`hardMaxMobs=96` es el techo concurrente por defecto y el validador admite personalizarlo hasta
-`128`; `maxNearbyHostiles=160` es una barrera local adicional. Son techos de política: Threat Budget,
-governor, grupo, terreno, chunks, rutas y costes pueden producir menos miembros. Aunque la tabla
-muestre la chance de superficie, el inicio automático todavía exige noche u oscuridad por defecto.
+- effective threat and band;
+- adaptive or forced mode;
+- effective encounter pressure and zone label;
+- power score;
+- active encounter phase and living mob count;
+- remaining cooldown ticks.
 
-El efecto de “cientos” es acumulativo: una escena extrema puede comenzar con decenas, alcanzar hasta
-96 concurrentes y reponer bajas durante diez oleadas. No se mantienen cientos de pathfinders a la
-vez; sí pueden atravesar el asedio cientos de cuerpos si la composición y el budget de por vida lo
-permiten.
+Encounter pressure is not the same as the HUD value. It combines the per-player threat with
+Minecraft difficulty and environmental hazard to shape the tactical encounter.
 
-## Overrides de threat
+### `/threatdirector debug intensity [player]`
+
+Shows the detailed intensity breakdown:
+
+- displayed and adaptive values;
+- target intensity;
+- power;
+- environment;
+- readiness;
+- distress;
+- server/planner load;
+- playtime progress;
+- XP progress;
+- combined progression.
+
+If no observation sample exists yet, the command says so instead of inventing zero-valued details.
+
+## Threat overrides
 
 ### `/threatdirector threat set <0..100> [player]`
 
-Requiere OP2. Solo acepta un número finito entre 0 y 100; `NaN`, infinito y valores fuera del rango
-se rechazan sin modificar estado.
+Requires permission level 2. The value must be finite and between 0 and 100. `NaN`, infinity, and
+out-of-range values are rejected without modifying state.
 
-El override sustituye el valor efectivo usado por HUD y director, actualiza inmediatamente la barra,
-influye en transiciones y patrones y no detiene el cálculo adaptativo. Si existe antes de crear un
-encuentro, también determina presupuesto y población. No recalcula el Threat Budget ni la población
-de un encuentro ya creado.
+The override immediately becomes the effective value used by the HUD, encounter selection, dynamic
+targeting, and ability scaling. Adaptive calculation continues in the background and is displayed by
+diagnostic commands.
 
-Si el objetivo indicado es un secundario, se modifica al primario porque el encuentro usa threat
-compartido. El feedback nombra al dueño realmente modificado.
+An override does not rebuild the lifetime Threat Budget or population of an already active encounter.
+When applied before starting a scene, it influences the new budget and contextual population.
 
-Un valor bajo no se eleva en silencio. Si no puede financiar el quorum contextual, `start` o `scene`
-devuelve `threat budget mob cap <cap> is below the contextual minimum <min>` o
-`contextual horde is unaffordable: minimum=<min>, available=<n> milli-threat`.
+A low override is never silently raised. If it cannot fund the contextual minimum, a forced start
+returns a clear budget or minimum-population error.
 
 ### `/threatdirector threat clear [player]`
 
-Requiere OP2. Elimina el override —o el del primario si se indicó un secundario— y vuelve al último
-valor adaptativo, que continuó actualizándose en segundo plano.
+Removes the in-memory override and immediately returns to the most recent adaptive value. Overrides,
+observation memory, and cooldowns are session state and do not persist across server restarts.
 
-Overrides, intensity, memoria reciente y cooldown viven en memoria. Se pierden al reiniciar. El
-override de un jugador desconectado también desaparece cuando su estado supera la ventana de
-retención.
-
-## HUD de amenaza
+## HUD control
 
 ### `/threatdirector hud [player]`
 
-Requiere OP2. Consulta si el HUD administrativo está `activado` u `oculto`. La variante sin jugador
-necesita un emisor dentro del juego; la consola debe indicar un objetivo conectado.
+Reports whether the target's threat HUD preference is enabled or hidden.
 
 ### `/threatdirector hud on|off [player]`
 
-Requiere OP2 incluso para la barra propia. Un OP puede habilitar la barra para un jugador sin OP usando
-`hud on <player>`; ese jugador solo necesita tener el JAR cliente para visualizar el overlay.
+Changes HUD visibility for one connected player. This requires:
 
-Ocultarla retira el overlay del cliente, pero no detiene intensity, threat, encuentros ni IA, y no afecta
-a otros miembros del grupo. La preferencia dura la sesión del servidor, incluso tras una desconexión,
-pero se restablece al reiniciar.
+- `modded.enabled: true`;
+- `modded.hud.enabled: true`;
+- `modded.hud.allowCommandOptIn: true`.
 
-Los no operadores no reciben barra salvo que un OP los habilite explícitamente; los espectadores no la
-reciben. Al recuperar OP2 o volver a un modo no espectador reaparece en el siguiente refresco si la
-preferencia está activa. El HUD usa un paquete pequeño propio y se sincroniza cada 10 ticks.
+The target client must have Threat Director installed to render the bar. Enabling HUD for an
+unmodded client is harmless because the server checks whether the channel is available before
+sending data.
 
-## Crear y terminar encuentros
+Hiding the HUD does not stop threat calculation, encounters, targeting, or AI. The preference lasts
+for the server session.
 
-### `/threatdirector start [player]`
+## OP chat logging
 
-Requiere OP2. Construye una población segura y crea un encuentro en Stalking. El feedback incluye
-UUID, número de mobs y Threat Budget total de por vida —base más reserva de refuerzos—.
+### `/threatdirector logging status [player]`
 
-Un inicio forzado omite cooldown normal, mínimo adaptativo, noche/oscuridad, probabilidad aleatoria y
-selección automática del miembro preferido. No omite las salvaguardas de la sección siguiente.
+Shows whether the selected OP is subscribed and reports logger status.
 
-Sin override toma `max(55, director.minimumIntensity, intensity actual)` como base y después aplica
-presión contextual; Easy puede reducir la cifra final y Hard aumentarla. Con override usa exactamente
-el valor solicitado; por eso uno inferior a 35 normalmente no financia el quorum. Con los defaults
-schema 3, Hard tiene cap `64` y mínimo `23` en superficie; con peligro completo alcanza cap `96` y
-mínimo `34`. Las oleadas son de `13/20` miembros respectivamente, hasta diez, sin superar el cap
-concurrente ni el budget vitalicio.
+### `/threatdirector logging on|off [player]`
 
-Las oleadas son reposiciones seguras, no mobs adicionales por encima del cap. Solo se intentan en
-Engaging o Climax, con al menos dos miembros vivos, governor 0–4, intervalo cumplido, milli-threat y
-planner disponibles, chunks cargados y spawn/rutas válidos. Además, en ese mismo ciclo del
-controlador al menos un mob dirigido debe estar a 48 bloques o menos y ver al objetivo primario.
-Forzar la escena no inventa esa percepción: sin línea de visión confirmada no aparece una oleada.
-Cada fallo se difiere sin romper el límite de ownership.
+Adds or removes an OP player from live diagnostic delivery. It requires
+`general.telemetry.operatorChatLoggingEnabled: true`.
 
-### `/threatdirector cancel [player|all]`
+Messages use the `[ThreatDirector DEBUG]` prefix and may include:
 
-Requiere OP2. Sin argumento cancela el encuentro del emisor; con jugador, el encuentro que lo
-incluye; con `all`, todos los activos.
+- threat samples and changes;
+- encounter admission and rejection reasons;
+- phase transitions;
+- population and reinforcement outcomes;
+- Awareness and Trait assignment;
+- Blood Moon omens, start, and end;
+- performance level changes;
+- command actions and safety denials.
 
-Cancelar envía el encuentro a Relief, borra targets y emite retirada. Al finalizar se liberan roles
-y propiedad: los mobs naturales vuelven a IA vanilla y los generados por el director se descartan.
+Chat logging is not broadcast to normal players and is independent from local NDJSON telemetry. It
+ends when the server session closes.
 
-## `phase` frente a `scene`
+## Encounter controls
 
-### `/threatdirector phase <state> [player]`
+### `/threatdirector debug start [player]`
 
-Requiere OP2 y un encuentro existente. Es un salto administrativo de bajo nivel. Admite Stalking,
-Positioning, Engaging, Searching, Climax, Relief y Retreating si no son ya la fase actual. Dormant,
-Cooldown y Aborted se rechazan.
+Builds a safe population and creates an encounter in Stalking. Feedback includes the encounter UUID,
+member count, and lifetime Threat Budget.
 
-`phase` no reinicia el temporizador al pedir la fase actual. Para Relief y Retreating cambia primero
-el estado y actualiza las órdenes cuando el controlador se ejecute de nuevo. Bajo degradación alta
-ese ciclo puede estar espaciado. Para pruebas reproducibles o retirada inmediata use `scene` o
-`cancel`.
+A forced start bypasses ordinary cooldown, random chance, automatic anchor selection, and the normal
+night/darkness requirement. It does not bypass safety rules, minimum affordable population,
+Performance Governor rejection, loaded chunks, valid paths, world border, or spawn protection.
 
-### `/threatdirector scene <state> [player]`
+Without an override, the command uses the strongest of the current adaptive value, the configured
+minimum, and the administrative start floor. With an override, it uses the requested value exactly.
 
-Requiere OP2 y es la interfaz recomendada para pruebas. Admite y autocompleta `stalking`,
-`positioning`, `engaging`, `searching`, `climax`, `relief` y `retreating`.
+### `/threatdirector debug cancel [player|all]`
 
-Si no existe encuentro, crea primero uno mediante la ruta segura de `start`. También puede reiniciar
-la fase actual, aplica inmediatamente Relief/Retreating y actúa sobre el controlador compartido al
-dirigirse a un secundario.
+Moves the selected encounter—or every active encounter—to Relief. It releases tactical ownership
+through normal cleanup rather than abruptly deleting mobs.
 
-Forzar una escena omite requisitos narrativos, pero no las comprobaciones del controlador. En el
-siguiente ciclo puede salir por target inválido, dimensión, spawn, distancia, navegación, derrota,
-salud crítica o governor nivel 6.
+### `/threatdirector debug phase <phase> [player]`
 
-Pedir Relief o Retreating sin encuentro puede crear una población y mandarla de inmediato a retirada.
-Sirve para probar la fase, aunque no representa un flujo natural.
-
-## Salvaguardas de `start` y `scene`
-
-Cuando `scene` debe crear un encuentro usa la misma ruta de `start`. Ambos respetan:
-
-- `enabled=true`;
-- objetivo vivo en Survival;
-- salud mínima y ventana de muerte reciente;
-- dificultad distinta de Peaceful;
-- dimensión permitida;
-- ausencia de otro encuentro propio o grupal cercano;
-- protección alrededor del spawn;
-- límite global de controladores y hard mob cap;
-- permisos del PerformanceGovernor;
-- slice administrativa acotada del planner para la formación forzada;
-- tipos de mob y costes válidos;
-- chunks ya cargados y world border;
-- suelo, luz, colisión, ruta y reglas vanilla;
-- límite local de hostiles;
-- `doMobSpawning` para generación dirigida.
-
-Con defaults, el objetivo debe estar en Overworld, fuera del radio de 128 bloques del spawn, con al
-menos 50 % de salud y sin una muerte en los últimos 12 000 ticks.
-
-La formación forzada usa una slice administrativa independiente del allowance y del deadline global
-del tick: `max(performance.maxPlannerOperationsPerTick, tactical.maxCandidatesPerSnapshot)`, 192
-operaciones con `VANILLA_PLUS`, dentro de una ventana propia acotada de al menos 250 ms. No omite
-ninguna salvaguarda de entidades, chunks, rutas o caps. Los inicios automáticos y las oleadas sí
-comparten el planner global de `20000 µs/192 ops` por defecto.
-
-El reclutamiento natural ocurre antes de generar el déficit. `doMobSpawning=false` bloquea mobs
-nuevos, no entidades elegibles ya existentes. En schema 3 los creepers dirigidos están habilitados;
-su explosión continúa bajo las reglas vanilla y `mobGriefing`.
-
-## Diagnóstico táctico
-
-### `/threatdirector roles`
-
-No requiere OP. Muestra pares como `1234abcd=FLANKER`; el identificador es el prefijo del UUID, no el
-tipo de mob.
-
-### `/threatdirector sectors`
-
-Requiere OP2. Genera seis partículas `END_ROD` en cada posición táctica y comunica cuántas visualizó.
-Las partículas pueden ser visibles para otros jugadores cercanos.
-
-### `/threatdirector budget`
-
-No requiere OP. Muestra `total` desglosado en `base` y `reserva`, gasto de `mobs activos`, gasto de
-`mobs retirados`, reserva de `patrones` y `restante`.
-
-Los valores usan **milli-threat**: `1000` equivale a `1.0` en el JSON. Un skeleton con coste `1.3`
-consume `1300`. Los budgets mostrados por `start` y `scene` usan la misma unidad.
-
-El budget es un ledger **de por vida del encuentro**. La base refleja intensity, grupo y governor;
-si la presión permite refuerzos, se añade una reserva acotada —desde cero hasta otro 100 % de la
-base— para sostener posibles oleadas. `total = base + reserva`; no representa mobs simultáneos y no
-se recalcula al cambiar threat después de crear el controlador. La reserva queda bloqueada durante
-la población inicial y los patrones tácticos solo pueden reservar saldo de la base: la porción de
-refuerzos no puede ser consumida por un patrón.
-
-Cuando un mob dirigido muere o se retira del encuentro durante el combate, su coste pasa
-de `mobs activos` a `mobs retirados`. Libera un hueco del cap concurrente, pero esos milli-threat
-siguen gastados: una baja no financia gratis a su reemplazo. Una oleada debe pagar sus miembros con
-el `restante` del budget vitalicio, que incorpora la reserva. Solo un intento que se revierte antes
-de quedar comprometido libera sus asignaciones.
-
-Con los defaults schema 3, los caps concurrentes por intensity son `0` bajo 35, `24` desde 35, `72`
-desde 60 y `96` desde 85. El grupo puede escalarlos sin superar el hard cap; la presión fija además
-su techo contextual, y costes/rendimiento pueden reducir la población financiable o agotar la
-reserva antes de diez oleadas.
-
-## BreachPlanner de solo lectura
-
-### `/threatdirector breach simulate`
-
-Requiere OP2 y un jugador. Nunca modifica bloques, block entities ni inventarios. Usa la posición del
-jugador como objetivo, un mob del encuentro o un punto cercano como origen, fase activa o Engaging
-hipotético, política `SOFT_BLOCKS_ONLY`, rol Breacher y cooldowns hipotéticamente disponibles.
-
-El resultado muestra decisión, motivo, bloques, coste, protección, seguridad y nodos visitados.
-Puede denegar por intensity, fase, claim, spawn, dureza, contenedor, block entity, bloque sensible,
-lava, presupuesto o ruta insegura.
-
-Claims conocidos sin adapter responden `UNKNOWN` y fallan cerrado. Incluso `WOULD_BREACH` significa
-“sería candidato”: este comando y `BreachPlanner` no realizan la acción. Es independiente de la
-habilidad de un zombie Hard, que puede romper como máximo una obstrucción apropiada para su
-herramienta por intento, sin drops, y solo con `mobGriefing=true`, chunk cargado, world border,
-spawn seguro y autorización `UNPROTECTED` del servicio de claims.
-
-## Configuración y diagnóstico del servidor
-
-### `/threatdirector config reload`
-
-Requiere OP2 y funciona en consola. Lee `config/threatdirector.json`, valida una snapshot completa y
-solo entonces la publica. Un error de I/O, JSON o validación conserva la última versión aceptada.
-
-La configuración nueva afecta observación, governor y futuros encuentros en ciclos posteriores. Los
-controladores activos retienen principalmente su snapshot; límites globales como salud urgente,
-rendimiento y cooldown final siguen la configuración vigente. `enabled=false` limpia encuentros y HUD
-en el siguiente tick.
-
-Defaults schema 3 de `VANILLA_PLUS`: scan `40` ticks, chance base `.06`, cooldown `1200–2400`,
-población configurada `4/32/96` (mínimo/base/hard cap), cap local `160`, distancias de spawn `32–64`,
-`64` candidatos, `5` intentos de path por mob, replan `20`, melee base `4`, planner
-`20000 µs/192 ops` y umbrales MSPT `45/55/70/90/120/160`. Threat Budget permite caps por banda de
-`24/72/96`; la presión Hard transforma el techo base en `64–96`. El validador permite
-`hardMaxMobs <= 128`.
-
-Un schema 1 o 2 que coincida exactamente con su preset legado adopta todos estos defaults. Una
-configuración antigua personalizada conserva secciones y valores y migra el número a schema 3; si
-las invariantes actuales la rechazan, continúa activa la última snapshot válida.
-
-### `/threatdirector integrations`
-
-Muestra IDs cargados, fallos y detección de claims. Los adapters se descubren al arrancar el runtime,
-no en cada consulta.
-
-### `/threatdirector performance`
-
-Muestra nivel `0..6`, MSPT, intervalo de decisión, límite de candidatos y encuentros activos. Los
-niveles 5 y 6 rechazan nuevos encuentros; el 6 devuelve temporalmente los controladores a vanilla.
-También informa si acepta encuentros y los máximos configurados de operaciones/microsegundos; no
-muestra cuánto allowance queda en el tick actual.
-
-El governor toma una muestra cada 20 ticks. Al arrancar aplica 100 ticks de warmup que ignoran solo
-la degradación ordinaria. La emergencia crítica nunca queda oculta: dos muestras críticas
-consecutivas llevan directamente a nivel 6 aun dentro del warmup. Con `VANILLA_PLUS`, crítico
-significa MSPT `>=100` o ratio de capacidad `>=1.75`; la degradación ordinaria sostenida requiere
-100 ticks y la recuperación de un nivel requiere 600.
-
-### `/threatdirector performance reset`
-
-Requiere OP2 y funciona en consola. Reinicia temporalmente el PerformanceGovernor a nivel 0 y limpia
-sus contadores de degradación, recuperación y emergencia para pruebas controladas.
-
-No cambia MSPT real, umbrales del JSON, encuentros, planner ni safeguards. Abre 100 ticks que ignoran
-la degradación ordinaria, pero no es un bypass de emergencia: dos muestras críticas consecutivas
-pueden devolverlo a nivel 6 durante ese mismo periodo. Al terminar, una carga alta no crítica vuelve
-a degradarlo gradualmente.
+Forces an existing encounter state. Valid internal phase names are:
 
 ```text
-/threatdirector performance
-/threatdirector performance reset
-/threatdirector performance
-/threatdirector scene engaging <player>
+STALKING
+POSITIONING
+ENGAGING
+SEARCHING
+CLIMAX
+RELIEF
+RETREATING
 ```
 
-Si la escena aún falla, el reset no corrige spawn, salud, muerte reciente, dimensión, población o
-presupuesto.
+This low-level command requires an existing encounter and may reject a transition that violates the
+state machine.
 
-### `/threatdirector preset`
+### `/threatdirector debug scene <scene> [player]`
 
-Muestra el preset activo, actualmente `VANILLA_PLUS` en 1.1.
-
-### `/threatdirector telemetry`
-
-Muestra enabled, closed, cola, capacidad, aceptados, escritos, descartes, fallos y último error. No
-fuerza un flush ni activa telemetría. La telemetría es local, no usa red y está desactivada por defecto.
-
-## Diagnóstico de errores habituales
-
-| Mensaje o síntoma | Causa probable | Qué comprobar |
-| --- | --- | --- |
-| `Threat Director runtime is not available` | Runtime aún no iniciado o cerrándose | Esperar el arranque |
-| Se esperaba un jugador | Consola usó una variante sin objetivo | Añadir nombre o ejecutar dentro del juego |
-| Falta de permisos | Rama OP2 | Usar `/op`, cheats o consola |
-| `target is not an eligible survival player` | Modo incorrecto, muerto o removido | Cambiar a Survival y estar vivo |
-| `target health is below the configured safety ratio` | Salud baja | Curarse por encima del ratio |
-| `target is inside the recent-death safety window` | Muerte reciente | Esperar; `start` no omite esta ventana |
-| `world difficulty is Peaceful` | Peaceful | Cambiar dificultad |
-| `dimension is not enabled` | Dimensión no permitida | Volver a Overworld o cambiar config |
-| `player already has an active encounter` | Ya es primario | Usar `scene`, `phase` o `cancel` |
-| `nearby group already has an active encounter` | Otro primario cercano | Dirigir la escena al grupo o cancelarlo |
-| `player is inside spawn protection` | Dentro del radio conservador | Alejarse del spawn |
-| `performance governor level N is not accepting new encounters` | Governor 5 o 6 | Reducir carga o usar `performance reset` para prueba |
-| `active encounter safety cap has been reached` | Cap global o degradado | Terminar otro encuentro |
-| `threat budget mob cap N is below the contextual minimum M` | Cap concurrente por intensity/contexto insuficiente | Subir threat o bajar el mínimo/cap contextual |
-| `contextual horde is unaffordable: minimum=M, available=N milli-threat` | Budget vitalicio insuficiente para el quorum | Subir threat o revisar costes/config/rendimiento |
-| `safe population could not be formed` | Sin mobs/rutas/spawns seguros | Revisar chunks, gamerules, terreno y hostiles |
-| `Minimum encounter population was not reached; allocations rolled back` | No se alcanzó el quorum con posiciones y rutas seguras | Alejarse de caps locales o probar terreno cargado más abierto |
-| `No hay encuentro activo` | Falta controlador | Ejecutar `start` o `scene` |
-| `Fase desconocida` | Nombre inválido | Usar una fase documentada |
-| `No se pudo cambiar la fase` | Igual, prohibida o terminada | Usar `scene` o elegir otra fase |
-| Configuración rechazada | JSON o invariantes inválidas | Corregir todas las causas; sigue la snapshot previa |
-| Breach `target_claim_unknown` | Claim sin adapter confiable | UNKNOWN falla cerrado |
-| Breach `intensity_too_low` | Intensity bajo el mínimo | Consultar `intensity` y `threat` |
-
-Las instalaciones antiguas podían agotar cuatro o 48 operaciones globales antes de que el comando
-formara la población; los niveles 5/6 bloqueaban incluso la ruta de prueba y cualquier intento por
-debajo del quorum revertía lo reclutado/generado. Schema 3 eleva el default a 192 operaciones,
-reserva trabajo para el spawn, contabiliza el uso real y concede a comandos OP una slice acotada
-propia de 192 operaciones y 250 ms.
-El governor continúa bloqueando niveles 5/6 por seguridad, pero ahora `performance reset` permite
-abrir un warmup explícito para degradación ordinaria. La emergencia crítica sigue activa durante ese
-periodo. El rollback de quorum continúa deliberadamente: evita crear “media horda” sin rutas y deja
-el mundo como estaba.
-
-## Flujos de prueba recomendados
-
-### HUD y cálculo adaptativo
+This is the recommended feature-testing command. Valid lowercase scenes are:
 
 ```text
-/threatdirector status
-/threatdirector intensity
-/threatdirector threat
-/threatdirector hud off
-/threatdirector hud on
+stalking
+positioning
+engaging
+searching
+climax
+relief
+retreating
 ```
 
-### Secuencia reproducible de alto threat
+If the player has no active encounter, the command attempts to create one safely before forcing the
+requested scene. Feedback identifies whether a new encounter was created and reports threat, living
+mobs, and budget.
 
-En Survival, Overworld, fuera de spawn, con salud suficiente y fuera de Peaceful:
+`scene` is scenario-oriented; `phase` is a direct state-machine operation.
+
+## Tactical diagnostics
+
+### `/threatdirector debug roles [player]`
+
+Lists abbreviated member UUIDs and their assigned tactical roles. Use it to confirm that Vanguard,
+Flanker, Harasser, and Interceptor assignments are distributed without duplicate ownership.
+
+### `/threatdirector debug sectors [player]`
+
+Spawns short-lived `END_ROD` particles at current tactical positions and reports their count. This is
+visual debugging only and does not change navigation or orders.
+
+### `/threatdirector debug budget [player]`
+
+Reports:
+
+- total lifetime budget;
+- base budget;
+- reinforcement reserve;
+- active mob spending;
+- retired mob spending;
+- pattern reservations;
+- remaining budget.
+
+Killed mobs move into retired spending; their cost is not returned. Reinforcements therefore cannot
+continue forever even when the concurrent cap has room.
+
+## Breach simulation
+
+### `/threatdirector debug breach simulate [player]`
+
+Runs a read-only breach plan from a representative encounter member toward the target. If there is no
+encounter, it uses a nearby synthetic origin. The command reports decision, reason, block count,
+budget cost, protection state, safety, and visited nodes.
+
+It requires `vanilla.breachSimulation.enabled: true`. The simulator never breaks blocks and is
+separate from the Modded creeper and zombie abilities.
+
+## Configuration
+
+### `/threatdirector debug config reload`
+
+Reads `config/threatdirector.json5`, verifies the complete schema and cross-field relationships, and
+publishes it only if every check passes.
+
+Examples of rejected configurations:
+
+- a missing property;
+- an unknown or misspelled property;
+- probability outside `0.0..1.0`;
+- minimum greater than maximum;
+- non-increasing performance thresholds;
+- invalid Minecraft identifiers;
+- missing threat cost for an allowed mob;
+- a population value above its hard safety cap.
+
+On failure, the previous immutable snapshot remains active. See
+[CONFIGURATION.md](CONFIGURATION.md) for every section and reload caveat.
+
+## Integrations and performance
+
+### `/threatdirector debug integrations`
+
+Shows loaded integration IDs, failure count, and claim-system detection. Integration providers are
+loaded at runtime startup, not by this command or a config reload.
+
+### `/threatdirector debug performance`
+
+Reports governor level `0..6`, current MSPT, decision interval, candidate limit, active encounter
+count, new-encounter admission, and configured planner budgets.
+
+At high levels, the governor rejects new encounters. Emergency level 6 can release encounter AI
+ownership temporarily so vanilla behavior resumes under severe load.
+
+### `/threatdirector debug performance reset`
+
+Resets the governor level and ordinary counters, then gives the system a short observation warmup.
+It does not change actual server load or conceal emergencies: consecutive critical samples can still
+trigger safety level 6 during the warmup.
+
+### `/threatdirector debug preset`
+
+Shows the active preset. Version 2.0 supports `VANILLA_PLUS`; detailed behavior is controlled by the
+three configuration categories rather than multiple opaque presets.
+
+### `/threatdirector debug telemetry`
+
+Shows the local telemetry recorder snapshot. Disk telemetry is configured under `general.telemetry`
+and requires a restart when changing writer construction settings.
+
+## Reproducible test flows
+
+### Maximum-pressure combat
 
 ```text
-/threatdirector threat set 90
-/threatdirector scene stalking
-/threatdirector roles
-/threatdirector budget
-/threatdirector sectors
-/threatdirector scene positioning
-/threatdirector scene engaging
-/threatdirector scene climax
-/threatdirector scene retreating
-/threatdirector cancel
+/threatdirector threat set 100
+/threatdirector logging on
+/threatdirector debug scene engaging
+/threatdirector debug roles
+/threatdirector debug budget
+/threatdirector debug scene climax
 /threatdirector threat clear
 ```
 
-### Override bajo
+### Relief and cleanup
 
 ```text
 /threatdirector threat set 20
-/threatdirector scene engaging
+/threatdirector debug scene relief
+/threatdirector debug status
+/threatdirector threat clear
 ```
 
-Debe rechazarse por presupuesto insuficiente. Termine con `threat clear`.
-
-### Refuerzos y budget de por vida
-
-Después de crear una escena con threat alto, consulte el ledger antes y después de una baja:
+### Configuration verification
 
 ```text
-/threatdirector threat set 90
-/threatdirector scene engaging
-/threatdirector budget
+/threatdirector debug config reload
+/threatdirector debug status
+/threatdirector debug performance
+/threatdirector debug integrations
 ```
 
-Mantenga al menos dos mobs dirigidos vivos y permita que uno vea al objetivo primario a 48 bloques o
-menos. Derrote uno, permanezca en Engaging o pase a Climax y espere el intervalo contextual. Searching
-no genera reposiciones. Tras la baja, `mobs retirados` aumenta sin aumentar `restante`; si se forma una
-oleada, `mobs activos` vuelve a crecer y `restante` baja. En Hard schema 3, superficie usa cap `64`,
-oleadas de `13` y 100 ticks; peligro completo usa cap `96`, oleadas de `20` y 80 ticks. En ambos casos
-hay como máximo diez oleadas y la reserva vitalicia puede agotarse antes.
-
-### Grupo multijugador
-
-Con dos jugadores dentro de `multiplayer.groupRadius`:
+### Multiplayer ownership
 
 ```text
-/threatdirector threat set 90 JugadorPrimario
-/threatdirector scene engaging JugadorPrimario
+/threatdirector threat set 80 PlayerA
+/threatdirector threat set 35 PlayerB
+/threatdirector debug scene engaging PlayerA
+/threatdirector debug status PlayerA
+/threatdirector debug status PlayerB
+/threatdirector debug roles PlayerA
 ```
 
-Si el secundario tiene el HUD habilitado debe ver el threat compartido. En su cliente, `threat` muestra
-lo compartido e `intensity` su diagnóstico personal. Solo un operador puede usar `hud off` para ocultar
-su propia barra o la de otro jugador.
-
-### Safeguards
-
-Repita `scene engaging` en Peaceful, spawn, salud crítica, Spectator, dimensión no permitida y tras
-morir. Cada caso debe rechazar con causa explícita. Día y cooldown normal no bloquean un inicio forzado.
-
-### BreachPlanner
-
-```text
-/threatdirector threat set 90
-/threatdirector breach simulate
-```
-
-Repita junto a spawn, lava, cofres y bloques duros. Ningún `BlockState`, block entity o inventario
-debe cambiar.
-
-### Governor
-
-```text
-/threatdirector performance
-/threatdirector performance reset
-/threatdirector scene engaging
-```
-
-El reset abre 100 ticks contra degradación ordinaria. Una carga crítica no espera: dos muestras
-consecutivas pueden llevar el governor a nivel 6 dentro del warmup; una carga alta no crítica vuelve
-a degradarlo cuando termina.
-
-## Servidor dedicado, singleplayer y LAN
-
-Threat Director es server-sided:
-
-- En dedicado, instale Threat Director y Fabric API en el servidor.
-- En singleplayer, instálelos en la instancia del anfitrión: el mundo usa un servidor integrado.
-- Al abrir por LAN, el anfitrión ejecuta el director. Los invitados reciben entidades, movimiento y
-  efectos mediante protocolo vanilla. Un invitado solo ve el overlay si tiene el JAR cliente y un OP le
-  habilitó el HUD.
-- En LAN, solo el anfitrión puede ser ancla automática aunque un invitado tenga más equipo. Si el host
-  es inelegible no se elige al invitado como reemplazo automático; se espera otro scan elegible.
-- Esta prioridad solo afecta la selección automática. `start <player>` y `scene <state> <player>`
-  respetan el objetivo explícito del OP. En dedicado se conserva el ranking por power y UUID.
-- Otros mods del modpack pueden imponer sus propios requisitos de cliente.
-
-Los permisos pertenecen al servidor. En singleplayer/LAN, habilitar cheats concede al anfitrión
-acceso a OP2; en dedicado use `/op` o consola.
-
-Ejemplos de consola dedicada, sin `/` inicial:
-
-```text
-threatdirector status Jugador
-threatdirector threat set 90 Jugador
-threatdirector scene climax Jugador
-threatdirector cancel Jugador
-threatdirector cancel all
-threatdirector performance reset
-threatdirector config reload
-```
-
-Los objetivos deben estar conectados. La versión 1.1 no conserva controladores ni overrides tras
-reiniciar.
+Confirm that PlayerB retains their own threat and targeting pressure while participating in the
+shared encounter owned by PlayerA.

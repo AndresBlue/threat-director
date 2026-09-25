@@ -42,10 +42,14 @@ class DifficultyAbilityPolicyTest {
         assertFalse(normal.enderman().twoBlockCombatPosture());
 
         assertTrue(hard.zombie().shieldAndPickaxe());
+        assertTrue(hard.zombie().pickaxeChance() < 0.10);
+        assertTrue(hard.zombie().shieldChance() < 0.20);
+        assertTrue(hard.zombie().shieldBlockChance() > 0.0);
         assertTrue(hard.zombie().maxReinforcements() <= 2);
         assertTrue(hard.zombie().blockBreakCooldownTicks() >= 20);
         assertTrue(hard.spider().cobwebOnHit());
         assertTrue(hard.spider().hatchlingCount() <= 2);
+        assertTrue(hard.spider().hatchlingSpawnChance() < 1.0);
         assertTrue(hard.enderman().twoBlockCombatPosture());
         assertTrue(hard.enderman().maxAlliesAlerted() <= 6);
     }

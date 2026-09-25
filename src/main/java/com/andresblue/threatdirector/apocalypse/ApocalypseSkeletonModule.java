@@ -46,6 +46,9 @@ public final class ApocalypseSkeletonModule {
         accessor.threatdirector$getGoalSelector().add(
                 3,
                 new ApocalypseSkeletonRangedGoal(skeleton, Difficulty.HARD.getId()));
+        accessor.threatdirector$getGoalSelector().add(
+                3,
+                new ApocalypseSkeletonRangedGoal(skeleton, Difficulty.HARD.getId(), true));
         skeleton.addCommandTag(SKELETON_AI_TAG);
     }
 }

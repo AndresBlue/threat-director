@@ -23,7 +23,7 @@ public final class EndermanDifficultyAbilities {
                 || player.isCreative() || player.isSpectator()) {
             return;
         }
-        if (ThreatScaling.playerThreat(player) < ThreatScaling.ACTIVATION_THREAT) {
+        if (ThreatScaling.playerThreat(player) < ThreatScaling.activationThreat()) {
             return;
         }
         DifficultyAbilityPolicy.EndermanRules rules = MinecraftDifficultyProfiles.forWorld(world).enderman();

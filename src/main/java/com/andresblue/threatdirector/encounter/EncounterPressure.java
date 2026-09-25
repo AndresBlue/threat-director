@@ -1,5 +1,6 @@
 package com.andresblue.threatdirector.encounter;
 
+import com.andresblue.threatdirector.bloodmoon.BloodMoonModule;
 import com.andresblue.threatdirector.config.ThreatDirectorConfig;
 import com.andresblue.threatdirector.server.PlayerDirectorState;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -31,11 +32,6 @@ public record EncounterPressure(
         int maximumReinforcementWaves,
         int reinforcementIntervalTicks,
         double cooldownMultiplier) {
-    private static final double NIGHT_HAZARD = 0.08;
-    private static final double DARKNESS_HAZARD = 0.10;
-    private static final double CAVE_HAZARD = 0.12;
-    private static final double INTENSITY_CONTEXT_SPAN = 20.0;
-
     public EncounterPressure {
         if (!Double.isFinite(hazard) || hazard < 0.0 || hazard > 1.0) {
             throw new IllegalArgumentException("hazard must be finite and between 0 and 1");
@@ -100,51 +96,55 @@ public record EncounterPressure(
                 Objects.requireNonNull(config.encounter(), "config.encounter");
         ThreatDirectorConfig.TacticalSection tactical =
                 Objects.requireNonNull(config.tactical(), "config.tactical");
+        ThreatDirectorConfig.EncounterPressureSection pressure =
+                Objects.requireNonNull(config.vanilla().pressure(), "config.vanilla.pressure");
 
         if (!Double.isFinite(intensity) || intensity < 0.0 || intensity > 100.0) {
             throw new IllegalArgumentException("intensity must be finite and between 0 and 100");
         }
 
-        double hazard = computeHazard(context);
+        double hazard = computeHazard(context, pressure);
         boolean peaceful = context.difficulty() == Difficulty.PEACEFUL;
         double effectiveIntensity = intensityOverride
                 ? intensity
-                : adaptiveIntensity(intensity, intensityConfig.maxIntensity(), hazard);
+                : adaptiveIntensity(intensity, intensityConfig.maxIntensity(), hazard,
+                pressure.intensityContextSpan());
         double encounterChance = peaceful
                 ? 0.0
-                : encounterChance(director.encounterChancePerScan(), context);
+                : encounterChance(director.encounterChancePerScan(), context, pressure);
 
         int hardMax = Math.max(0, encounter.hardMaxMobs());
         int normalCap = clamp(encounter.maxMobs(), 0, hardMax);
         int configuredMinimum = clamp(encounter.minMobs(), 0, normalCap);
         int mobCap = peaceful
                 ? 0
-                : apocalypseMobCap(configuredMinimum, normalCap, hardMax, context);
+                : apocalypseMobCap(configuredMinimum, normalCap, hardMax, context, pressure);
         int minimumMobs = peaceful
                 ? 0
-                : apocalypseMinimum(configuredMinimum, mobCap, context.difficulty());
+                : apocalypseMinimum(
+                        configuredMinimum, mobCap, context, pressure);
 
         int configuredMelee = Math.max(0, tactical.maxSimultaneousMeleeAttackers());
         int meleeAttackers = peaceful
                 ? 0
-                : apocalypseMelee(configuredMelee, mobCap, context.difficulty());
+                : apocalypseMelee(
+                        configuredMelee, mobCap, context, pressure);
         int replanIntervalTicks = Math.max(1, (int) Math.round(
-                Math.max(1, tactical.replanIntervalTicks()) * cadenceMultiplier(hazard)));
+                Math.max(1, tactical.replanIntervalTicks())
+                        * cadenceMultiplier(hazard, context, pressure)));
 
         int desiredReinforcements = peaceful
                 ? 0
-                : reinforcementSizeFor(mobCap, context.difficulty());
+                : reinforcementSizeFor(mobCap, context, pressure);
         int reinforcementSize = Math.min(
                 desiredReinforcements,
                 Math.max(0, mobCap - minimumMobs));
         int maximumReinforcementWaves = reinforcementSize == 0
                 ? 0
-                : maximumReinforcementWaves(context.difficulty());
+                : pressureTier(context, pressure).maximumReinforcementWaves();
         int reinforcementIntervalTicks = reinforcementSize == 0
                 ? 0
-                : Math.max(
-                        replanIntervalTicks,
-                        (int) Math.round(200.0 * clamp(1.25 - hazard, 0.40, 1.0)));
+                : Math.max(replanIntervalTicks, reinforcementIntervalTicks(context, pressure));
 
         return new EncounterPressure(
                 hazard,
@@ -158,7 +158,7 @@ public record EncounterPressure(
                 reinforcementSize,
                 maximumReinforcementWaves,
                 reinforcementIntervalTicks,
-                cooldownMultiplier(context));
+                cooldownMultiplier(context, pressure));
     }
 
     /** Uses the effective value and explicit-override state already maintained for a player. */
@@ -179,116 +179,160 @@ public record EncounterPressure(
         return calculate(config, state, Context.from(player));
     }
 
-    private static double computeHazard(Context context) {
+    private static double computeHazard(
+            Context context, ThreatDirectorConfig.EncounterPressureSection pressure) {
         if (context.difficulty() == Difficulty.PEACEFUL) {
             return 0.0;
         }
         double difficultyHazard = switch (context.difficulty()) {
-            case EASY -> 0.25;
-            case NORMAL -> 0.50;
-            case HARD -> 0.75;
+            case EASY -> pressure.easyDifficultyHazard();
+            case NORMAL -> pressure.normalDifficultyHazard();
+            case HARD -> pressure.hardDifficultyHazard();
             case PEACEFUL -> 0.0;
         };
-        double environmentalHazard = (context.night() ? NIGHT_HAZARD : 0.0)
-                + (context.darkness() ? DARKNESS_HAZARD : 0.0)
-                + (context.cave() ? CAVE_HAZARD : 0.0);
+        double environmentalHazard = (context.night() ? pressure.nightHazard() : 0.0)
+                + (context.darkness() ? pressure.darknessHazard() : 0.0)
+                + (context.cave() ? pressure.caveHazard() : 0.0);
         return clamp(difficultyHazard + environmentalHazard, 0.0, 1.0);
     }
 
     private static double adaptiveIntensity(
-            double intensity, double configuredMaximum, double hazard) {
+            double intensity, double configuredMaximum, double hazard, double contextSpan) {
         double maximum = Double.isFinite(configuredMaximum)
                 ? clamp(configuredMaximum, 0.0, 100.0)
                 : 100.0;
-        double contextual = intensity + (hazard - 0.50) * INTENSITY_CONTEXT_SPAN;
+        double contextual = intensity + (hazard - 0.50) * contextSpan;
         return clamp(contextual, 0.0, maximum);
     }
 
-    private static double encounterChance(double configuredChance, Context context) {
-        double environmental = environmentalFraction(context);
+    private static double encounterChance(
+            double configuredChance, Context context,
+            ThreatDirectorConfig.EncounterPressureSection pressure) {
+        double environmental = environmentalFraction(context, pressure);
         double multiplier = switch (context.difficulty()) {
             case PEACEFUL -> 0.0;
             // Easy is the vanilla-compatible tier. Administrators can still force a scene,
             // but the director never starts an automatic horde on this difficulty.
             case EASY -> 0.0;
-            case NORMAL -> 1.50 + environmental * 2.0;
-            case HARD -> 5.0 + environmental * 5.0;
+            case NORMAL, HARD -> {
+                var tier = pressureTier(context, pressure);
+                yield tier.encounterChanceBaseMultiplier()
+                        + environmental * tier.encounterChanceEnvironmentalBonus();
+            }
         };
         return clamp(configuredChance * multiplier, 0.0, 1.0);
     }
 
     private static int apocalypseMobCap(
-            int minimum, int normalCap, int hardMax, Context context) {
-        double environmental = environmentalFraction(context);
-        int easyCap = clamp(Math.max(minimum, Math.min(6, normalCap)), minimum, hardMax);
+            int minimum, int normalCap, int hardMax, Context context,
+            ThreatDirectorConfig.EncounterPressureSection pressure) {
+        double environmental = environmentalFraction(context, pressure);
+        int easyCap = clamp(Math.max(minimum, Math.min(pressure.easy().mobCap(), normalCap)),
+                minimum, hardMax);
         return switch (context.difficulty()) {
             case PEACEFUL -> 0;
             case EASY -> easyCap;
-            case NORMAL -> clamp(
-                    (int) Math.round(normalCap + (hardMax - normalCap) * 0.35 * environmental),
-                    minimum,
-                    hardMax);
-            case HARD -> clamp(
-                    (int) Math.round(normalCap
-                            + (hardMax - normalCap) * (0.50 + 0.50 * environmental)),
-                    minimum,
-                    hardMax);
+            case NORMAL, HARD -> {
+                var tier = pressureTier(context, pressure);
+                yield clamp((int) Math.round(normalCap + (hardMax - normalCap)
+                                * (tier.mobCapBaseFraction()
+                                + tier.mobCapEnvironmentalFraction() * environmental)),
+                        minimum, hardMax);
+            }
         };
     }
 
-    private static int apocalypseMinimum(int configuredMinimum, int mobCap, Difficulty difficulty) {
-        return Math.min(mobCap, switch (difficulty) {
+    private static int apocalypseMinimum(
+            int configuredMinimum, int mobCap, Context context,
+            ThreatDirectorConfig.EncounterPressureSection pressure) {
+        return Math.min(mobCap, switch (context.difficulty()) {
             case PEACEFUL -> 0;
             case EASY -> configuredMinimum;
-            case NORMAL -> Math.max(configuredMinimum, (int) Math.ceil(mobCap * 0.33));
-            case HARD -> Math.max(configuredMinimum, (int) Math.ceil(mobCap * 0.35));
+            case NORMAL, HARD -> Math.max(configuredMinimum, (int) Math.ceil(
+                    mobCap * pressureTier(context, pressure).minimumMobFraction()));
         });
     }
 
-    private static int apocalypseMelee(int configuredMelee, int mobCap, Difficulty difficulty) {
-        return Math.min(mobCap, switch (difficulty) {
+    private static int apocalypseMelee(
+            int configuredMelee, int mobCap, Context context,
+            ThreatDirectorConfig.EncounterPressureSection pressure) {
+        return Math.min(mobCap, switch (context.difficulty()) {
             case PEACEFUL -> 0;
-            case EASY -> Math.min(2, configuredMelee);
-            case NORMAL -> Math.max(configuredMelee, (int) Math.ceil(mobCap * 0.25));
-            case HARD -> Math.max(configuredMelee, (int) Math.ceil(mobCap * 0.35));
+            case EASY -> Math.min(pressure.easy().meleeAttackers(), configuredMelee);
+            case NORMAL, HARD -> Math.max(configuredMelee, (int) Math.ceil(
+                    mobCap * pressureTier(context, pressure).meleeFraction()));
         });
     }
 
-    private static int reinforcementSizeFor(int mobCap, Difficulty difficulty) {
-        return switch (difficulty) {
+    private static int reinforcementSizeFor(
+            int mobCap, Context context,
+            ThreatDirectorConfig.EncounterPressureSection pressure) {
+        return switch (context.difficulty()) {
             case PEACEFUL, EASY -> 0;
-            case NORMAL -> Math.max(4, (int) Math.ceil(mobCap * 0.12));
-            case HARD -> Math.max(12, (int) Math.ceil(mobCap * 0.20));
+            case NORMAL, HARD -> {
+                var tier = pressureTier(context, pressure);
+                yield Math.max(tier.reinforcementMinimum(),
+                        (int) Math.ceil(mobCap * tier.reinforcementFraction()));
+            }
         };
     }
 
-    private static int maximumReinforcementWaves(Difficulty difficulty) {
-        return switch (difficulty) {
-            case PEACEFUL, EASY -> 0;
-            case NORMAL -> 6;
-            case HARD -> 10;
+    private static int reinforcementIntervalTicks(
+            Context context, ThreatDirectorConfig.EncounterPressureSection pressure) {
+        double environmental = environmentalFraction(context, pressure);
+        return switch (context.difficulty()) {
+            case NORMAL, HARD -> {
+                var tier = pressureTier(context, pressure);
+                yield (int) Math.round(tier.reinforcementIntervalTicks()
+                        - environmental * tier.reinforcementEnvironmentReductionTicks());
+            }
+            default -> 0;
         };
     }
 
-    private static double cadenceMultiplier(double hazard) {
-        return clamp(1.50 - hazard, 0.50, 1.50);
+    private static double cadenceMultiplier(
+            double hazard, Context context,
+            ThreatDirectorConfig.EncounterPressureSection pressure) {
+        if (context.difficulty() == Difficulty.PEACEFUL || context.difficulty() == Difficulty.EASY) {
+            var easy = pressure.easy();
+            return clamp(easy.cadenceBaseMinusHazard() - hazard,
+                    easy.cadenceMinimumMultiplier(), easy.cadenceMaximumMultiplier());
+        }
+        var tier = pressureTier(context, pressure);
+        return clamp(tier.cadenceBaseMinusHazard() - hazard,
+                tier.cadenceMinimumMultiplier(), tier.cadenceMaximumMultiplier());
     }
 
-    private static double cooldownMultiplier(Context context) {
-        double environmental = environmentalFraction(context);
+    private static double cooldownMultiplier(
+            Context context, ThreatDirectorConfig.EncounterPressureSection pressure) {
+        double environmental = environmentalFraction(context, pressure);
         return switch (context.difficulty()) {
             case PEACEFUL -> 1.0;
-            case EASY -> 1.50;
-            case NORMAL -> clamp(1.0 - environmental * 0.40, 0.60, 1.0);
-            case HARD -> clamp(0.35 - environmental * 0.20, 0.15, 0.35);
+            case EASY -> pressure.easy().cooldownMultiplier();
+            case NORMAL, HARD -> {
+                var tier = pressureTier(context, pressure);
+                yield clamp(tier.cooldownBaseMultiplier()
+                                - environmental * tier.cooldownEnvironmentalReduction(),
+                        tier.cooldownMinimumMultiplier(), tier.cooldownMaximumMultiplier());
+            }
         };
     }
 
-    private static double environmentalFraction(Context context) {
-        double environmental = (context.night() ? NIGHT_HAZARD : 0.0)
-                + (context.darkness() ? DARKNESS_HAZARD : 0.0)
-                + (context.cave() ? CAVE_HAZARD : 0.0);
-        return clamp(environmental / (NIGHT_HAZARD + DARKNESS_HAZARD + CAVE_HAZARD), 0.0, 1.0);
+    private static double environmentalFraction(
+            Context context, ThreatDirectorConfig.EncounterPressureSection pressure) {
+        double environmental = (context.night() ? pressure.nightHazard() : 0.0)
+                + (context.darkness() ? pressure.darknessHazard() : 0.0)
+                + (context.cave() ? pressure.caveHazard() : 0.0);
+        double maximum = pressure.nightHazard() + pressure.darknessHazard() + pressure.caveHazard();
+        return maximum <= 0.0 ? 0.0 : clamp(environmental / maximum, 0.0, 1.0);
+    }
+
+    private static ThreatDirectorConfig.PressureTierSection pressureTier(
+            Context context, ThreatDirectorConfig.EncounterPressureSection pressure) {
+        if (context.difficulty() == Difficulty.HARD) {
+            return context.bloodMoon() ? pressure.bloodMoon() : pressure.hard();
+        }
+        return pressure.normal();
     }
 
     private static String zoneLabel(Context context) {
@@ -301,6 +345,9 @@ public record EncounterPressure(
         }
         if (context.cave()) {
             zones.add("cave");
+        }
+        if (context.bloodMoon()) {
+            zones.add("blood_moon");
         }
         String zone = zones.length() == 0 ? "surface" : zones.toString();
         return context.difficulty().name().toLowerCase(Locale.ROOT) + ":" + zone;
@@ -315,9 +362,18 @@ public record EncounterPressure(
     }
 
     /** Minimal immutable context, suitable for deterministic unit tests and telemetry. */
-    public record Context(Difficulty difficulty, boolean night, boolean darkness, boolean cave) {
+    public record Context(
+            Difficulty difficulty,
+            boolean night,
+            boolean darkness,
+            boolean cave,
+            boolean bloodMoon) {
         public Context {
             Objects.requireNonNull(difficulty, "difficulty");
+        }
+
+        public Context(Difficulty difficulty, boolean night, boolean darkness, boolean cave) {
+            this(difficulty, night, darkness, cave, false);
         }
 
         public static Context from(ServerPlayerEntity player) {
@@ -326,7 +382,12 @@ public record EncounterPressure(
             BlockPos position = player.getBlockPos();
             boolean darkness = world.getLightLevel(position) <= 7;
             boolean cave = !world.isSkyVisible(position) && position.getY() < world.getSeaLevel();
-            return new Context(world.getDifficulty(), world.isNight(), darkness, cave);
+            return new Context(
+                    world.getDifficulty(),
+                    world.isNight(),
+                    darkness,
+                    cave,
+                    BloodMoonModule.isActive(world));
         }
     }
 }

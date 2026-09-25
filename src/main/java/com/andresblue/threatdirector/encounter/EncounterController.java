@@ -259,7 +259,6 @@ public final class EncounterController {
                         true,
                         target != null && inSpawnProtection(target),
                         0.0,
-                        0.0,
                         false,
                         false,
                         false,
@@ -350,7 +349,7 @@ public final class EncounterController {
             return;
         }
 
-        int attackingTargetIndex = 0;
+        Map<UUID, Integer> assignments = new HashMap<>();
         for (MobEntity mob : living) {
             long orderNow = mob.getWorld().getTime();
             TacticalRole role = blackboard.role(mob.getUuid()).orElse(TacticalRole.VANGUARD);
@@ -361,8 +360,9 @@ public final class EncounterController {
                 orderStore.issue(mob, MobOrder.retreat(
                         encounterId, retreat, 1.1, orderNow + orderDuration(80)));
             } else if (mayAttack) {
-                ServerPlayerEntity assignedTarget = groupTargets.get(
-                        attackingTargetIndex++ % groupTargets.size());
+                ServerPlayerEntity assignedTarget = selectGroupTarget(
+                        groupTargets, assignments, mob, tick);
+                assignments.merge(assignedTarget.getUuid(), 1, Integer::sum);
                 orderStore.issue(mob, MobOrder.engage(
                         encounterId, assignedTarget.getUuid(), orderNow + orderDuration(60)));
                 mob.setTarget(assignedTarget);
@@ -378,6 +378,29 @@ public final class EncounterController {
                         orderNow + orderDuration(60)));
             }
         }
+    }
+
+    /**
+     * Distributes attackers across visible group members without making the roster's UUID order a
+     * predictable target rotation. The least-pressured player is preferred, while a per-mob/tick
+     * tie breaker changes on replans. This keeps a three- or four-player raid interactive without
+     * concentrating the whole horde on one player or multiplying damage linearly.
+     */
+    private ServerPlayerEntity selectGroupTarget(
+            List<ServerPlayerEntity> candidates,
+            Map<UUID, Integer> assignments,
+            MobEntity mob,
+            long tick) {
+        int replanRound = (int) Math.max(0L, tick / 60L);
+        return candidates.stream()
+                .min(Comparator
+                        .comparingInt((ServerPlayerEntity player) ->
+                                assignments.getOrDefault(player.getUuid(), 0))
+                        .thenComparingInt(player ->
+                                Math.floorMod(player.getUuid().hashCode()
+                                        ^ mob.getUuid().hashCode() ^ replanRound, 31))
+                        .thenComparing(player -> player.getUuid().toString()))
+                .orElse(candidates.get(0));
     }
 
     private void executeSearch(List<MobEntity> living, long tick) {
@@ -786,7 +809,6 @@ public final class EncounterController {
                 distress = Math.max(distress, 1.0);
             }
         }
-        double dominance = playerState.breakdown() == null ? 0.0 : playerState.breakdown().dominance();
         boolean valid = target != null && combatTargetEligibility.test(target);
         boolean sameDimension = target != null && target.getServerWorld() == world;
         boolean fullyUnloadedGraceExpired = !memberCosts.isEmpty()
@@ -817,7 +839,6 @@ public final class EncounterController {
                 pursuitViable,
                 target != null && inSpawnProtection(target),
                 distress,
-                dominance,
                 disengaged,
                 disengaged,
                 cleanupComplete,

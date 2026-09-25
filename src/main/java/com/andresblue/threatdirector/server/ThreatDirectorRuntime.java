@@ -12,11 +12,15 @@ import com.andresblue.threatdirector.config.ConfigManager;
 import com.andresblue.threatdirector.config.ThreatDirectorConfig;
 import com.andresblue.threatdirector.encounter.EncounterManager;
 import com.andresblue.threatdirector.performance.GovernorLimits;
+import com.andresblue.threatdirector.performance.GovernorUpdate;
 import com.andresblue.threatdirector.performance.LoadSample;
 import com.andresblue.threatdirector.performance.PerformanceGovernor;
 import com.andresblue.threatdirector.power.PowerEvaluationPipeline;
 import com.andresblue.threatdirector.telemetry.TelemetryRecorder;
 import com.andresblue.threatdirector.telemetry.TelemetryRecorders;
+import com.andresblue.threatdirector.telemetry.ChatDebugLogger;
+import com.andresblue.threatdirector.telemetry.DebugChatTelemetryRecorder;
+import com.andresblue.threatdirector.telemetry.TelemetryEvent;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.player.PlayerEntity;
@@ -48,6 +52,7 @@ public final class ThreatDirectorRuntime implements AutoCloseable {
     private final IntegrationLoadReport integrationReport;
     private final ClaimProtectionService claims;
     private final boolean claimSystemPresent;
+    private final ChatDebugLogger chatDebugLogger;
     private final TelemetryRecorder telemetry;
     private final EncounterManager encounters;
     private boolean closed;
@@ -79,17 +84,20 @@ public final class ThreatDirectorRuntime implements AutoCloseable {
                 .resolve("threatdirector")
                 .resolve("telemetry")
                 .resolve("events.jsonl");
-        this.telemetry = TelemetryRecorders.localNdjson(
+        this.chatDebugLogger = new ChatDebugLogger(server);
+        TelemetryRecorder localTelemetry = TelemetryRecorders.localNdjson(
                 config.telemetry().enabled(),
                 telemetryPath,
                 config.telemetry().queueCapacity(),
                 config.telemetry().flushBatchSize());
+        this.telemetry = new DebugChatTelemetryRecorder(localTelemetry, chatDebugLogger);
         DirectorAiInstaller aiInstaller = new DirectorAiInstaller(orderStore);
         this.encounters = new EncounterManager(server, observations, orderStore, aiInstaller, telemetry);
 
         ThreatDirectorMod.LOGGER.info(
-                "Threat Director runtime started: preset={}, external integrations={}, claims={}",
-                config.preset(),
+                "Threat Director 2.0 runtime started: vanilla={}, modded={}, external integrations={}, claims={}",
+                config.vanilla().enabled(),
+                config.modded().enabled(),
                 integrationReport.loadedCount(),
                 claimSystemPresent ? "detected" : "none");
     }
@@ -114,25 +122,38 @@ public final class ThreatDirectorRuntime implements AutoCloseable {
             governor.configure(config.performance());
             double activeRatio = encounters.active().size()
                     / (double) Math.max(1, config.encounter().maxActiveEncounters());
-            governor.update(new LoadSample(
+            GovernorUpdate update = governor.update(new LoadSample(
                     tick,
                     server.getTickTime(),
                     server.getTickTime(),
                     0.0,
                     activeRatio,
                     activeRatio));
+            if (update.changed()) {
+                telemetry.record(TelemetryEvent.now("performance.level", java.util.Map.of(
+                        "previous", update.previousLevel(),
+                        "current", update.currentLevel(),
+                        "desired", update.desiredLevel(),
+                        "tick", tick)));
+            }
         }
 
         GovernorLimits limits = governor.limits();
         double planningLoad = Math.min(1.0, encounters.active().size()
                 / (double) Math.max(1, config.encounter().maxActiveEncounters()));
         observations.sampleAll(server, config, planningLoad);
-        encounters.tick(config, limits);
+        if (config.vanillaEnabled()) {
+            encounters.tick(config, limits);
+        } else {
+            encounters.disable(config, tick);
+        }
         if (tick % 10L == 0L) {
             refreshHud();
         }
 
-        if (tick % config.director().scanIntervalTicks() == 0L) {
+        if (config.vanillaEnabled()
+                && config.vanilla().adaptiveDirectorEnabled()
+                && tick % config.director().scanIntervalTicks() == 0L) {
             encounters.scanForEncounters(config, limits);
         }
         if (telemetry.isEnabled() && tick % (governor.level() >= 4 ? 100L : 20L) == 0L) {
@@ -142,16 +163,33 @@ public final class ThreatDirectorRuntime implements AutoCloseable {
 
     public void afterDeath(net.minecraft.entity.LivingEntity entity, DamageSource source) {
         long tick = server.getTicks();
+        java.util.Map<String, Object> deathAttributes = new java.util.LinkedHashMap<>();
+        deathAttributes.put("entity", entity.getType().toString());
+        deathAttributes.put("tick", tick);
+        if (entity.getUuid() != null) {
+            deathAttributes.put("entityUuid", entity.getUuid().toString());
+        }
+        if (source.getAttacker() != null) {
+            deathAttributes.put("attacker", source.getAttacker().getType().toString());
+        }
+        telemetry.record(TelemetryEvent.now("entity.death", deathAttributes));
         if (entity instanceof net.minecraft.entity.mob.MobEntity mob) {
             encounters.confirmMobDeath(mob.getUuid());
         }
         if (entity instanceof ServerPlayerEntity player) {
             observations.recordDeath(player, tick);
+            telemetry.record(TelemetryEvent.now("player.death", java.util.Map.of(
+                    "player", player.getUuid().toString(),
+                    "tick", tick)));
             encounters.cancel(player.getUuid(), tick);
         }
         if (entity instanceof net.minecraft.entity.mob.HostileEntity
                 && source.getAttacker() instanceof ServerPlayerEntity killer) {
             observations.recordKill(killer, tick);
+            telemetry.record(TelemetryEvent.now("player.kill", java.util.Map.of(
+                    "player", killer.getUuid().toString(),
+                    "entity", entity.getType().toString(),
+                    "tick", tick)));
         }
     }
 
@@ -180,20 +218,28 @@ public final class ThreatDirectorRuntime implements AutoCloseable {
     }
 
     public void refreshHud() {
-        if (configManager.current().enabled()) {
+        if (configManager.current().moddedEnabled()
+                && configManager.current().modded().hud().enabled()) {
             hud.sync(server, observations, encounters);
         } else {
             hud.clear(server);
         }
     }
 
-    public void setHudEnabled(ServerPlayerEntity player, boolean enabled) {
+    public boolean setHudEnabled(ServerPlayerEntity player, boolean enabled) {
+        if (!configManager.current().moddedEnabled()
+                || !configManager.current().modded().hud().enabled()
+                || !configManager.current().modded().hud().allowCommandOptIn()) {
+            return false;
+        }
         hud.setEnabled(player.getUuid(), enabled);
         refreshHud();
+        return true;
     }
 
     public boolean isHudEnabled(ServerPlayerEntity player) {
-        boolean operator = server.getPlayerManager().isOperator(player.getGameProfile());
+        boolean operator = configManager.current().modded().hud().operatorsSeeByDefault()
+                && server.getPlayerManager().isOperator(player.getGameProfile());
         return hud.isEnabled(player.getUuid(), operator);
     }
 
@@ -215,6 +261,10 @@ public final class ThreatDirectorRuntime implements AutoCloseable {
 
     public TelemetryRecorder telemetry() {
         return telemetry;
+    }
+
+    public ChatDebugLogger chatDebugLogger() {
+        return chatDebugLogger;
     }
 
     @Override

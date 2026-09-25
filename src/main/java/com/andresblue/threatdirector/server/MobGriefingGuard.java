@@ -27,7 +27,7 @@ public final class MobGriefingGuard {
             return false;
         }
         ThreatDirectorRuntime runtime = optionalRuntime.get();
-        if (runtime.server() != world.getServer() || !runtime.config().enabled()) {
+        if (runtime.server() != world.getServer() || !runtime.config().moddedEnabled()) {
             return false;
         }
         if (!runtime.claims().permitsDestructiveMobAction(ClaimPosition.from(world, position))) {

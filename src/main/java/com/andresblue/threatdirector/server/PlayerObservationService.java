@@ -30,6 +30,10 @@ public final class PlayerObservationService {
     private static final double PLAY_TIME_FOR_FULL_PRESSURE_TICKS = 6.0 * 60.0 * 60.0 * 20.0;
     /** Level 30 reaches the maximum experience-based pressure contribution. */
     private static final double EXPERIENCE_LEVEL_FOR_FULL_PRESSURE = 30.0;
+    /** Each death removes a bounded slice of the time-based progression pressure. */
+    private static final double PLAY_TIME_DEATH_PENALTY_PER_DEATH = 0.15;
+    /** Repeated deaths never erase more than 65% of the time-based progression. */
+    private static final double PLAY_TIME_MAX_DEATH_PENALTY = 0.65;
 
     private final PowerEvaluationPipeline powerPipeline;
     private final Map<UUID, PlayerDirectorState> states = new HashMap<>();
@@ -41,6 +45,7 @@ public final class PlayerObservationService {
 
     public void sampleAll(MinecraftServer server, ThreatDirectorConfig config, double planningLoad) {
         long tick = server.getTicks();
+        Map<UUID, PowerReport> powerReports = null;
         for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
             lastSeenTicks.put(player.getUuid(), tick);
             if (player.isSpectator()) {
@@ -51,7 +56,10 @@ public final class PlayerObservationService {
                     && tick - state.lastSampleTick() < config.intensity().sampleIntervalTicks()) {
                 continue;
             }
-            sample(server, player, state, config, planningLoad, tick);
+            if (powerReports == null) {
+                powerReports = evaluateOnlinePlayers(server, config);
+            }
+            sample(server, player, state, config, planningLoad, tick, powerReports);
         }
         long retentionTicks = Math.max(
                 24_000L,
@@ -69,14 +77,18 @@ public final class PlayerObservationService {
             PlayerDirectorState state,
             ThreatDirectorConfig config,
             double planningLoad,
-            long tick) {
+            long tick,
+            Map<UUID, PowerReport> powerReports) {
         ServerWorld world = player.getServerWorld();
         double effectiveHealth = player.getHealth() + player.getAbsorptionAmount();
         state.observeHealth(tick, effectiveHealth);
 
         Map<PowerAxis, Integer> powerCaps = powerCaps(config);
-        PowerReport targetPower = powerPipeline.evaluate(
-                VanillaPlayerSnapshotFactory.capture(player), powerCaps);
+        PowerReport targetPower = powerReports.get(player.getUuid());
+        if (targetPower == null) {
+            targetPower = powerPipeline.evaluate(
+                    VanillaPlayerSnapshotFactory.capture(player), powerCaps(config));
+        }
         Collection<ServerPlayerEntity> nearbyPlayers = server.getPlayerManager().getPlayerList().stream()
                 .filter(other -> other.getServerWorld() == world)
                 .filter(other -> other.isAlive()
@@ -86,9 +98,14 @@ public final class PlayerObservationService {
                 .toList();
         ArrayList<Double> groupPowers = new ArrayList<>(nearbyPlayers.size());
         for (ServerPlayerEntity member : nearbyPlayers) {
-            PowerReport memberPower = member == player
-                    ? targetPower
-                    : powerPipeline.evaluate(VanillaPlayerSnapshotFactory.capture(member), powerCaps);
+            PowerReport memberPower = powerReports.get(member.getUuid());
+            if (memberPower == null && member == player) {
+                memberPower = targetPower;
+            }
+            if (memberPower == null) {
+                memberPower = powerPipeline.evaluate(
+                        VanillaPlayerSnapshotFactory.capture(member), powerCaps);
+            }
             groupPowers.add(memberPower.score());
         }
 
@@ -107,10 +124,15 @@ public final class PlayerObservationService {
         long sinceCombat = elapsedOrCap(tick, state.lastCombatTick(), 2_400L);
         boolean recentDeath = state.lastDeathTick() != Long.MIN_VALUE;
         long sinceDeath = recentDeath ? Math.max(0L, tick - state.lastDeathTick()) : 12_000L;
-        double playTimeProgress = clamp01(playerPlayTimeTicks(player) / PLAY_TIME_FOR_FULL_PRESSURE_TICKS);
+        double playTimeProgress = playTimeProgress(
+                playerPlayTimeTicks(player),
+                playerDeathCount(player),
+                config.intensity().playTimeHoursForMaximum() * 60.0 * 60.0 * 20.0,
+                config.intensity().deathPlayTimePenalty(),
+                config.intensity().maximumDeathPlayTimePenalty());
         double experienceProgress = clamp01(
                 (Math.max(0, player.experienceLevel) + Math.max(0.0F, player.experienceProgress))
-                        / EXPERIENCE_LEVEL_FOR_FULL_PRESSURE);
+                        / config.intensity().experienceLevelForMaximum());
 
         int recentWindow = config.intensity().recentDamageWindowTicks();
         AdventureSignals signals = new AdventureSignals(
@@ -125,9 +147,6 @@ public final class PlayerObservationService {
                 sinceEncounter,
                 sinceCombat,
                 state.adaptiveIntensity(),
-                state.killsWithin(tick, recentWindow),
-                state.damageWithin(tick, recentWindow),
-                state.lastCombatTick() == Long.MIN_VALUE ? 0.0 : 1.0,
                 player.getMaxHealth(),
                 player.getHealth(),
                 player.getAbsorptionAmount(),
@@ -176,6 +195,25 @@ public final class PlayerObservationService {
         return states.values();
     }
 
+    /**
+     * Evaluates each online player once per observation cycle. Previously every player re-evaluated
+     * all nearby players, making a four-player group perform up to sixteen inventory/attribute
+     * scans. The cache is local to this call and never retains entity or world references.
+     */
+    private Map<UUID, PowerReport> evaluateOnlinePlayers(
+            MinecraftServer server,
+            ThreatDirectorConfig config) {
+        Map<PowerAxis, Integer> powerCaps = powerCaps(config);
+        Map<UUID, PowerReport> result = new HashMap<>();
+        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+            if (!player.isSpectator()) {
+                result.put(player.getUuid(), powerPipeline.evaluate(
+                        VanillaPlayerSnapshotFactory.capture(player), powerCaps));
+            }
+        }
+        return result;
+    }
+
     public void recordKill(ServerPlayerEntity player, long tick) {
         state(player.getUuid()).recordKill(tick);
     }
@@ -214,6 +252,40 @@ public final class PlayerObservationService {
     private static long playerPlayTimeTicks(ServerPlayerEntity player) {
         return Math.max(0L, player.getStatHandler().getStat(
                 Stats.CUSTOM.getOrCreateStat(Stats.PLAY_TIME)));
+    }
+
+    private static int playerDeathCount(ServerPlayerEntity player) {
+        return Math.max(0, player.getStatHandler().getStat(
+                Stats.CUSTOM.getOrCreateStat(Stats.DEATHS)));
+    }
+
+    /**
+     * Applies a persistent, bounded recovery penalty to vanilla play time. The vanilla statistic
+     * continues to advance normally, but deaths reduce how much of it contributes to progression:
+     * 85% remains after one death, 70% after two, and the retained share never drops below 35%.
+     */
+    static double playTimeProgress(long playTimeTicks, int deathCount) {
+        return playTimeProgress(
+                playTimeTicks,
+                deathCount,
+                PLAY_TIME_FOR_FULL_PRESSURE_TICKS,
+                PLAY_TIME_DEATH_PENALTY_PER_DEATH,
+                PLAY_TIME_MAX_DEATH_PENALTY);
+    }
+
+    static double playTimeProgress(
+            long playTimeTicks,
+            int deathCount,
+            double ticksForMaximum,
+            double penaltyPerDeath,
+            double maximumPenalty) {
+        double rawProgress = clamp01(Math.max(0L, playTimeTicks)
+                / Math.max(1.0, ticksForMaximum));
+        double boundedDeaths = Math.max(0, deathCount);
+        double penalty = Math.min(
+                Math.max(0.0, maximumPenalty),
+                boundedDeaths * Math.max(0.0, penaltyPerDeath));
+        return clamp01(rawProgress * (1.0 - penalty));
     }
 
     private static double square(double value) {

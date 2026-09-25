@@ -2,6 +2,7 @@ package com.andresblue.threatdirector.mixin;
 
 import com.andresblue.threatdirector.ThreatDirectorMod;
 import com.andresblue.threatdirector.apocalypse.ApocalypseSkeletonModule;
+import com.andresblue.threatdirector.bloodmoon.BloodMoonModule;
 import com.andresblue.threatdirector.server.ThreatScaling;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
@@ -21,7 +22,9 @@ public abstract class HomingArrowMixin {
     private void threatdirector$steerTowardTarget(CallbackInfo callbackInfo) {
         PersistentProjectileEntity arrow = (PersistentProjectileEntity) (Object) this;
         if (arrow.getWorld().isClient
-                || !ThreatDirectorMod.isEnabled()
+                || !ThreatDirectorMod.isModdedEnabled()
+                || !ThreatDirectorMod.config().modded().skeleton().enabled()
+                || !ThreatDirectorMod.config().modded().skeleton().homingArrows()
                 || !arrow.getCommandTags().contains(ApocalypseSkeletonModule.ENHANCED_ARROW_TAG)) {
             return;
         }
@@ -33,7 +36,9 @@ public abstract class HomingArrowMixin {
         }
         int difficultyId = arrow.getWorld().getDifficulty().getId();
         double strength = ThreatScaling.homingStrength(
-                difficultyId, ThreatScaling.playerThreat(player));
+                difficultyId,
+                ThreatScaling.playerThreat(player),
+                BloodMoonModule.isActive(arrow.getWorld()));
         if (strength <= 0.0) {
             return;
         }

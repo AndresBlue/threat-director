@@ -1,151 +1,125 @@
-# Threat Director — descripción para CurseForge
+# Threat Director 2.0
 
-## Una noche que aprende de ti
+## Adaptive hostile AI for Minecraft 1.20.1
 
-Threat Director convierte la supervivencia de Minecraft 1.20.1 en una campaña de presión adaptativa.
-El servidor observa a cada jugador, estima su preparación y peligro ambiental, y dirige encuentros con
-roles, sectores, flanqueos y oleadas. Una aldea puede parecer tranquila al principio y convertirse en
-el punto de convergencia de una horda cuando el jugador ya está bien equipado.
+Threat Director makes vanilla hostile mobs more aware, coordinated, and responsive without replacing Minecraft's combat system. Difficulty is created through player-specific Threat, positioning, investigation, reinforcements, tactical roles, and environmental pressure rather than simply multiplying mob health or damage.
 
-El mod está diseñado para ser server-sided: no registra bloques, objetos ni entidades de contenido.
-La IA, el threat y los comandos se ejecutan en el servidor integrado; el único paquete adicional es el
-canal opcional que transmite el valor del HUD al cliente que quiera visualizarlo. Los invitados pueden
-jugar sin el mod, pero necesitan el JAR para ver su propia barra.
+**Full documentation:** [Threat Director Wiki](https://threat-director.fandom.com/wiki/Threat_Director_Wiki)
 
-## Requisitos
+The wiki contains the complete configuration reference, commands, mob behavior details, troubleshooting guides, and multiplayer documentation.
 
-- Minecraft Java Edition 1.20.1
-- Fabric Loader 0.18.4
-- Fabric API 0.92.11+1.20.1
-- Java 17
+## What the mod does
 
-## Threat por jugador
+### Per-player Threat
 
-El threat es un valor de 0 a 100 calculado a partir de equipo, salud, absorción, inventario, entorno,
-preparación, tiempo de juego persistente, XP y carga reciente. Se suaviza para evitar saltos artificiales y se consulta de forma
-individual: un jugador nuevo no hereda automáticamente el castigo de su compañero equipado.
+Threat Director evaluates every player independently using equipment, health, combat stress, environment, XP, playtime, recent encounters, deaths, and nearby teammates. New or under-equipped players remain close to vanilla until they cross the configured activation threshold.
 
-El tiempo de juego aporta presión incluso si el jugador permanece con equipo básico: seis horas alcanzan su contribución máxima. El nivel de XP también aporta una progresión adicional hasta el nivel 30, por lo que retrasar el equipamiento no mantiene el mundo en su estado inicial para siempre.
+Playtime and XP prevent permanent difficulty avoidance through deliberate under-equipping. Death removes part of the effective playtime contribution so a player who loses their gear has room to recover.
 
-Las habilidades extraordinarias comienzan a aparecer sobre 35 de threat. Por debajo de ese umbral el
-comportamiento sigue siendo muy cercano a vanilla. En Hard, el progreso completo alcanza los rangos
-publicitados: esqueletos hasta 128 bloques y zombis hasta 96. El servidor conserva todos los límites de
-seguridad aunque el threat esté forzado por un OP.
+In multiplayer, detection range, aggro, abilities, and encounter pressure are scaled against the actual target player. Nearby teammates increase group pressure with diminishing returns rather than a simple linear multiplier.
 
-## Director de encuentros
+### Awareness
 
-- Adventure Intensity explicable, con bandas, histéresis y diagnóstico por jugador/grupo.
-- Threat Budget entero: las bajas no reciclan el coste; las reservas de refuerzos son acotadas.
-- Presión contextual por noche, oscuridad, cuevas y zonas peligrosas.
-- Fases `STALKING`, `POSITIONING`, `ENGAGING`, `SEARCHING`, `CLIMAX`, `RELIEF` y `RETREATING`.
-- Roles `VANGUARD`, `FLANKER`, `HARASSER` e `INTERCEPTOR`, navegación vanilla y rotación melee.
-- Sectores de pinza, cierres de salida y oleadas continuas. En Hard el cap contextual por defecto es
-  64 en superficie y 96 en peligro completo, con un cap local de 160 hostiles cercanos.
-- Performance Governor de siete niveles para cortar oleadas o planes cuando el servidor está bajo carga.
-- Salvaguardas de salud mínima, muerte reciente, distancia, chunks cargados, world border, spawn y
-  `mobGriefing`; claims desconocidos fallan cerrado.
+Hostile mobs can receive additional movement, sound, or light senses alongside their normal AI. Sound-aware mobs can investigate real server events such as:
 
-## Habilidades de los mobs
+- mining and block destruction;
+- explosions;
+- doors and containers;
+- combat, deaths, and projectile attacks.
 
-### Esqueletos: fuego que corrige su trayectoria
+An investigation identifies a location, not perfect knowledge of the player. Movement and light detection still depend on line of sight.
 
-En Normal el alcance crece de 24 a 64 bloques; en Hard llega de 32 a 128 según el threat del jugador.
-La puntería predice velocidad y dirección, y cada flecha mejorada recibe guiado server-side mientras
-vuela. Hard reduce la divergencia, permite retroceso defensivo y dash para tomar distancia. Las flechas
-especiales pueden aplicar `Slowness`, `Poison`, `Nausea` o `Blindness`; duran entre 1 y 30 segundos,
-con una media aproximada de 8 segundos. Easy conserva el tiro vanilla.
+### Traits
 
-### Zombies: una señal y llega la manada
+Some mobs receive rare persistent combinations of systemic Traits:
 
-Cuando un jugador supera el umbral de threat, la detección inicial tiene una probabilidad progresiva de
-invocar un rayo y una horda de 3–5 zombies en Normal o 5–10 en Hard. Los recién llegados nacen con el
-objetivo marcado. Un golpe a un zombie alerta a los zombis cercanos dentro de un radio que escala con
-threat. El marcador de aggro se conserva hasta que el zombie muere: no se pierde por distancia ni por
-línea de visión, por lo que las paredes solo compran tiempo.
+- **Coward** — retreats while badly injured;
+- **Berserker** — becomes faster and stronger when wounded;
+- **Leader** — recruits nearby idle hostiles;
+- **Regenerative** — heals over time;
+- **Swift** — moves faster;
+- **Resilient** — gains armor and knockback resistance.
 
-Hard añade equipo de hierro, escudos ocasionales, refuerzos acotados y herramientas capaces de romper
-un bloque compatible (pala, hacha, pico o espada) solo cuando las reglas de mundo, claims y guardas lo
-permiten. Easy mantiene el comportamiento vanilla.
+Traits create behavioral variety without requiring large numbers of visual mob variants.
 
-### Creepers: silencio, presión y mechas impredecibles
+### Blood Moons
 
-Normal acelera el acercamiento por la espalda y acorta parcialmente la mecha. En Hard, con threat alto,
-los pasos son silenciosos, el creeper puede hacer dash, encenderse al encontrar una pared que puede
-romper y escoger una mecha aleatoria entre 30 % y 100 % de la vanilla. La explosión sigue `mobGriefing`
-y las salvaguardas del servidor.
+Every several nights, the world can schedule a Blood Moon. A subtle daytime omen warns that the next night will be different. During the event, sleep cannot skip the night and Threat Director uses its full high-pressure profile: stronger encounters, larger reinforcement waves, extended targeting, and the complete set of configured mob abilities.
 
-### Arañas
+Ordinary difficulty is intentionally more readable than a Blood Moon. The event interval, omens, sleep rule, and pressure profile are configurable.
 
-Normal ofrece Speed I y Jump Boost I. Hard añade regeneración y fuerza, y al morir puede generar hasta
-dos cave spiders sin recursión. La telaraña al golpear es deliberadamente rara: cooldown de 20 segundos
-y probabilidad de 1–6 % según threat, siempre sujeta a `mobGriefing` y claims.
+### Coordinated encounters
+
+The Director recruits suitable loaded mobs first and can fill a controlled deficit with safe spawning. Encounters move through stalking, positioning, engaging, searching, climax, relief, and retreating phases.
+
+Mobs can receive tactical roles such as pursuer, flanker, ranged unit, breacher, support, blocker, or ambusher. Population, pathfinding, reinforcement work, and encounter budgets are bounded to keep hordes coordinated without recalculating every route every tick.
+
+## Enhanced hostile mobs
+
+### Skeletons
+
+Long-range, player-specific detection; predictive aim; optional homing arrows; slowness, poison, nausea, or blindness arrows; and retreat dashes. Effect durations, range, accuracy, and attack cadence scale with difficulty, Threat, and Blood Moon pressure.
+
+### Zombies
+
+Persistent aggro, nearby aggro propagation, lightning-backed horde calls, combat reinforcements, difficulty-scaled weapons and tools, rare shields, and guarded tool-based block breaking. Shields can block attacks with vanilla feedback, while axe hits temporarily disable them.
+
+### Creepers
+
+Silent movement in the full profile, faster rear pursuit, randomized fuse timing, target memory through temporary line-of-sight loss, and coordinated breaching. A suitable nearby creeper may open a viable shelter wall for the rest of the horde, subject to `mobGriefing`, claims, spawn protection, loaded chunks, world borders, and block safety checks.
+
+### Spiders
+
+Configurable speed, jump, regeneration, and strength variants; rare cooldown-limited cobweb attacks; and limited hatchlings on death. Cave-spider offspring are uncommon during ordinary gameplay and become more likely under extreme pressure.
 
 ### Endermen
 
-Al recibir daño un enderman puede alertar aliados cercanos. En Hard adopta una postura agachada de dos
-bloques y puede teletransportarse de forma acotada al bloque de un jugador que intenta hacer un pilar.
-Estas respuestas se activan y escalan con el threat individual.
+Shared retaliation when nearby hostile mobs are attacked, two-block combat posture, and bounded anti-pillar teleport behavior.
 
-### Otros hostiles vanilla
+### Drowned
 
-Brujas e illagers, blaze/ghast/phantom, guardianes, drowned/husks, silverfish/endermites/slimes y brutos
-reciben presión temática server-side: proyectiles, acercamiento, aliados, estados y empujes según familia
-y dificultad. El resto conserva el objetivo común adaptativo sin inventar entidades registradas.
+More aggressive nighttime swimming, extended targeting, underwater approach dashes, configurable trident and Riptide behavior, and trident impacts that can break occupied boats. Daytime and Easy behavior remain close to vanilla.
 
-## Dificultad
+Other hostile families receive bounded, configurable thematic behavior where supported.
 
-| Dificultad | Experiencia |
-| --- | --- |
-| Easy | Vanilla; no habilidades extraordinarias ni encuentros automáticos. |
-| Normal | Presión parcial, rangos moderados y hordas pequeñas sobre 35 de threat. |
-| Hard | Perfil Apocalypse completo: visión amplia, horda, pathfinding agresivo y habilidades avanzadas. |
+## Server-side and multiplayer compatibility
 
-## Comandos para OP (permiso 2)
+Threat Director is designed for singleplayer, integrated servers, dedicated servers, and mixed-client multiplayer.
 
-```text
-/threatdirector status [player]
-/threatdirector intensity [player]
-/threatdirector threat [player]
-/threatdirector threat set <0..100> [player]
-/threatdirector threat clear [player]
-/threatdirector hud [on|off] [player]
-/threatdirector start [player]
-/threatdirector cancel [player|all]
-/threatdirector phase <state> [player]
-/threatdirector scene <state> [player]
-/threatdirector roles
-/threatdirector sectors
-/threatdirector budget
-/threatdirector performance [reset]
-/threatdirector preset
-/threatdirector config reload
-/threatdirector integrations
-/threatdirector breach simulate
-/threatdirector telemetry
-```
+The **Vanilla** layer can run entirely server-side and controls encounter direction, targeting, group scaling, and tactical AI. The **Modded** layer controls Awareness, Traits, Blood Moons, the HUD, and extraordinary mob abilities. Both layers can be enabled independently.
 
-`threat set` fuerza el valor efectivo en memoria para probar escenas y escalados; `threat clear`
-devuelve el cálculo adaptativo. `scene` crea o reutiliza un encuentro y salta directamente a una fase.
-El HUD es una barra segmentada sin texto, situada en un espacio dedicado debajo de la XP y sobre la
-hotbar. La XP y los indicadores vanilla inferiores se elevan ligeramente para reservar la franja; la
-barra reutiliza la estética de la XP y conserva la paleta verde, amarilla, roja y morada. Los OP la ven
-por defecto y pueden habilitarla para un jugador concreto con `hud on <player>` o esconderla con `hud off`.
-El overlay requiere el JAR en el cliente que lo visualiza; la IA y el cálculo de threat siguen siendo
-server-sided.
+Players without the client mod can join a modded server and see gameplay changes through normal Minecraft rendering. They do not receive the Threat HUD, Threat Director announcements, debug telemetry, raw translation keys, or command suggestions.
 
-## Instalación y compatibilidad
+## Configuration and administration
 
-1. Instala Fabric Loader, Fabric API y Java 17.
-2. Coloca `threat-director-mc1.20.1-1.1.jar` en `mods` del servidor o de la instancia integrada.
-3. Inicia el mundo y ajusta `config/threatdirector.json` si quieres cambiar caps o preset.
+Threat Director generates a commented JSON5 configuration with three sections:
 
-El gameplay no requiere contenido adicional en el cliente, pero el cliente que quiera ver el overlay
-debe tener el mismo JAR. Es compatible con mundos dedicados y LAN; integraciones de claims, telemetría
-y otros contenidos son opcionales. Las explosiones, roturas y telarañas respetan las reglas del servidor.
-Para pruebas controladas, usa `threat set`, `scene engaging` o `scene climax`, y luego `threat clear`.
+- **General:** Threat calculation, progression, playtime, XP, performance, telemetry, and integrations;
+- **Vanilla:** Server-sided encounter and tactical behavior;
+- **Modded:** Awareness, Traits, Blood Moons, HUD, and mob-specific abilities.
 
-## Créditos y estado
+Operators can inspect Threat, force or clear values for testing, control the HUD, enable OP-only chat logging, inspect encounters and performance, force test scenes, and reload the configuration.
 
-Threat Director 1.1 se apoya en entidades y navegación vanilla, con lógica adicional aislada en el
-servidor. El objetivo es que la amenaza se perciba como una inteligencia colectiva, no como simples
-bonificadores de vida o daño.
+See the [wiki](https://threat-director.fandom.com/wiki/Threat_Director_Wiki) for the complete command list and a property-by-property explanation of the configuration file.
+
+## Performance and safety
+
+A staged Performance Governor reduces decision frequency, candidate scans, pathfinding, reinforcement work, and new encounter admission when server load rises.
+
+Destructive behavior is restricted by `mobGriefing`, spawn protection, loaded chunks, world borders, safe block rules, and compatible claim systems. The mod does not force chunks for combat, and invalid configuration reloads preserve the last known-good snapshot.
+
+## Requirements
+
+- Minecraft 1.20.1
+- Fabric Loader 0.18.4 or newer compatible release
+- Fabric API 0.92.11+1.20.1
+- Java 17
+
+## Installation
+
+1. Install Fabric Loader and Fabric API for Minecraft 1.20.1.
+2. Place `threat-director-mc1.20.1-2.0.jar` in the server or integrated instance `mods` folder.
+3. Start once to generate `config/threatdirector.json5`.
+4. Review the generated comments and choose Vanilla-only or the complete experience.
+
+For detailed setup, behavior explanations, commands, and troubleshooting, visit the [Threat Director Wiki](https://threat-director.fandom.com/wiki/Threat_Director_Wiki).

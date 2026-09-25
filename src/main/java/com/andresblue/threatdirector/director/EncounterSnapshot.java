@@ -20,7 +20,6 @@ public record EncounterSnapshot(
         boolean navigationViable,
         boolean targetInProtectedZone,
         double distress,
-        double dominance,
         boolean pressureDisengaged,
         boolean retreatComplete,
         boolean cleanupComplete,

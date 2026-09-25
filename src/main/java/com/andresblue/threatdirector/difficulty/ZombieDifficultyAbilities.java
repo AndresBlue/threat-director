@@ -1,6 +1,7 @@
 package com.andresblue.threatdirector.difficulty;
 
 import com.andresblue.threatdirector.ThreatDirectorMod;
+import com.andresblue.threatdirector.bloodmoon.BloodMoonModule;
 import com.andresblue.threatdirector.server.MobGriefingGuard;
 import com.andresblue.threatdirector.server.ThreatScaling;
 import net.minecraft.block.BlockState;
@@ -34,7 +35,9 @@ public final class ZombieDifficultyAbilities {
 
     /** Reasserts a locked player target so walls and distance cannot make it drop. */
     public static boolean maintainAggro(ZombieEntity zombie) {
-        if (!ThreatDirectorMod.isEnabled()
+        if (!ThreatDirectorMod.isModdedEnabled()
+                || !ThreatDirectorMod.config().modded().zombie().enabled()
+                || !ThreatDirectorMod.config().modded().zombie().stickyAggroEnabled()
                 || !(zombie.getTarget() instanceof ServerPlayerEntity player)
                 || !player.isAlive()
                 || !zombie.getCommandTags().contains(AGGRO_TAG)) {
@@ -45,7 +48,10 @@ public final class ZombieDifficultyAbilities {
     }
 
     public static void markAggro(ZombieEntity zombie, ServerPlayerEntity target) {
-        if (ThreatDirectorMod.isEnabled() && target != null && target.isAlive()) {
+        if (ThreatDirectorMod.isModdedEnabled()
+                && ThreatDirectorMod.config().modded().zombie().enabled()
+                && ThreatDirectorMod.config().modded().zombie().stickyAggroEnabled()
+                && target != null && target.isAlive()) {
             zombie.addCommandTag(AGGRO_TAG);
             zombie.setTarget(target);
         }
@@ -54,14 +60,17 @@ public final class ZombieDifficultyAbilities {
     /** Alerts nearby zombies belonging to the same server-side threat field. */
     public static int alertNearby(ZombieEntity caller, ServerPlayerEntity target) {
         if (!(caller.getWorld() instanceof ServerWorld world)
-                || !ThreatDirectorMod.isEnabled()
+                || !ThreatDirectorMod.isModdedEnabled()
+                || !ThreatDirectorMod.config().modded().zombie().nearbyAggroEnabled()
                 || target == null
                 || !target.isAlive()) {
             return 0;
         }
         int difficultyId = world.getDifficulty().getId();
         double radius = ThreatScaling.zombieAlertRadius(
-                difficultyId, ThreatScaling.playerThreat(target));
+                difficultyId,
+                ThreatScaling.playerThreat(target),
+                BloodMoonModule.isActive(world));
         if (radius <= 0.0) {
             return 0;
         }
@@ -83,7 +92,8 @@ public final class ZombieDifficultyAbilities {
      */
     public static int tryTriggerHorde(ZombieEntity caller, ServerPlayerEntity target) {
         if (!(caller.getWorld() instanceof ServerWorld world)
-                || !ThreatDirectorMod.isEnabled()
+                || !ThreatDirectorMod.isModdedEnabled()
+                || !ThreatDirectorMod.config().modded().zombie().lightningHordesEnabled()
                 || target == null
                 || !target.isAlive()
                 || caller.getCommandTags().contains(AGGRO_TAG)
@@ -92,7 +102,8 @@ public final class ZombieDifficultyAbilities {
         }
         int difficultyId = world.getDifficulty().getId();
         double threat = ThreatScaling.playerThreat(target);
-        double chance = ThreatScaling.zombieHordeChance(difficultyId, threat);
+        boolean bloodMoon = BloodMoonModule.isActive(world);
+        double chance = ThreatScaling.zombieHordeChance(difficultyId, threat, bloodMoon);
         if (chance <= 0.0 || caller.getRandom().nextDouble() >= chance) {
             return 0;
         }
@@ -105,9 +116,15 @@ public final class ZombieDifficultyAbilities {
         }
 
         markAggro(caller, target);
-        int minimum = difficultyId >= 3 ? 5 : 3;
-        int roll = caller.getRandom().nextInt((difficultyId >= 3 ? 10 : 5) - minimum + 1);
-        int count = ThreatScaling.zombieHordeCount(difficultyId, threat, roll);
+        var feature = ThreatDirectorMod.config().modded().zombie();
+        int minimum = difficultyId >= 3
+                ? bloodMoon ? feature.bloodMoonHordeMinimum() : feature.hardHordeMinimum()
+                : feature.normalHordeMinimum();
+        int maximum = difficultyId >= 3
+                ? bloodMoon ? feature.bloodMoonHordeMaximum() : feature.hardHordeMaximum()
+                : feature.normalHordeMaximum();
+        int roll = caller.getRandom().nextInt(maximum - minimum + 1);
+        int count = ThreatScaling.zombieHordeCount(difficultyId, threat, roll, bloodMoon);
         int spawned = 0;
         for (int i = 0; i < count; i++) {
             if (spawnOne(world, caller, target)) {
@@ -127,14 +144,24 @@ public final class ZombieDifficultyAbilities {
             return;
         }
 
-        Item[] tools = rules.shieldAndPickaxe()
-                ? new Item[]{Items.IRON_SHOVEL, Items.IRON_AXE, Items.IRON_SWORD, Items.IRON_PICKAXE}
-                : new Item[]{Items.STONE_SHOVEL, Items.STONE_AXE, Items.IRON_SWORD};
-        Item selected = tools[zombie.getRandom().nextInt(Math.min(rules.meleeToolChoices(), tools.length))];
+        Item selected;
+        if (rules.shieldAndPickaxe()
+                && DifficultyAbilityPolicy.acceptsRoll(
+                zombie.getRandom().nextDouble(), rules.pickaxeChance())) {
+            selected = Items.IRON_PICKAXE;
+        } else {
+            Item[] tools = rules.shieldAndPickaxe()
+                    ? new Item[]{Items.IRON_SHOVEL, Items.IRON_AXE, Items.IRON_SWORD}
+                    : new Item[]{Items.STONE_SHOVEL, Items.STONE_AXE, Items.IRON_SWORD};
+            selected = tools[zombie.getRandom().nextInt(
+                    Math.min(rules.meleeToolChoices(), tools.length))];
+        }
         zombie.equipStack(EquipmentSlot.MAINHAND, new ItemStack(selected));
         zombie.setEquipmentDropChance(EquipmentSlot.MAINHAND, 0.05F);
 
-        if (rules.shieldAndPickaxe() && zombie.getRandom().nextFloat() < 0.30F) {
+        if (rules.shieldAndPickaxe()
+                && DifficultyAbilityPolicy.acceptsRoll(
+                zombie.getRandom().nextDouble(), rules.shieldChance())) {
             zombie.equipStack(EquipmentSlot.OFFHAND, new ItemStack(Items.SHIELD));
             zombie.setEquipmentDropChance(EquipmentSlot.OFFHAND, 0.02F);
         }
@@ -143,6 +170,7 @@ public final class ZombieDifficultyAbilities {
     /** Returns true only when at least one bounded reinforcement was actually spawned. */
     public static boolean tryCallReinforcements(ZombieEntity caller, LivingEntity attacker) {
         if (!(caller.getWorld() instanceof ServerWorld world)
+                || !ThreatDirectorMod.config().modded().zombie().reinforcementsEnabled()
                 || !world.getGameRules().getBoolean(GameRules.DO_MOB_SPAWNING)) {
             return false;
         }
@@ -175,6 +203,7 @@ public final class ZombieDifficultyAbilities {
      */
     public static boolean tryBreakPreferredObstruction(ZombieEntity zombie) {
         if (!(zombie.getWorld() instanceof ServerWorld world)
+                || !ThreatDirectorMod.config().modded().zombie().blockBreakingEnabled()
                 || !world.getGameRules().getBoolean(GameRules.DO_MOB_GRIEFING)
                 || MinecraftDifficultyProfiles.forWorld(world).zombie().blockBreakCooldownTicks() == 0) {
             return false;
@@ -232,7 +261,7 @@ public final class ZombieDifficultyAbilities {
             if (attacker != null && attacker.isAlive()) {
                 reinforcement.setTarget(attacker);
                 if (attacker instanceof ServerPlayerEntity player
-                        && ThreatScaling.playerThreat(player) >= ThreatScaling.ACTIVATION_THREAT) {
+                        && ThreatScaling.playerThreat(player) >= ThreatScaling.activationThreat()) {
                     markAggro(reinforcement, player);
                 }
             }

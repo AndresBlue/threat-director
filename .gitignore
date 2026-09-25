@@ -3,9 +3,9 @@
 build/
 out/
 run/
+logs/
 .idea/
 *.iml
 *.ipr
 *.iws
 .vscode/
-logs/

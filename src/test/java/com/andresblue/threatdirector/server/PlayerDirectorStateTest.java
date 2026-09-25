@@ -42,12 +42,12 @@ class PlayerDirectorStateTest {
         state.setIntensityOverride(72.4);
         ThreatHudService.HudPresentation presentation = ThreatHudService.presentation(state);
         assertEquals(0.724F, presentation.progress(), 1.0e-6F);
-        assertEquals("THREAT 72% · ALTO · FORZADO", presentation.title());
+        assertEquals("THREAT 72% - HIGH - FORCED", presentation.title());
         assertEquals(BossBar.Color.RED, presentation.color());
 
         ThreatHudService.HudPresentation groupPresentation =
                 ThreatHudService.presentation(state, true);
-        assertEquals("THREAT 72% · ALTO · FORZADO · GRUPO", groupPresentation.title());
+        assertEquals("THREAT 72% - HIGH - FORCED - GROUP", groupPresentation.title());
     }
 
     @Test
@@ -82,6 +82,6 @@ class PlayerDirectorStateTest {
     }
 
     private static AdventureIntensityBreakdown breakdown() {
-        return new AdventureIntensityBreakdown(0.4, 0.5, 0.6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 50.0);
+        return new AdventureIntensityBreakdown(0.4, 0.5, 0.6, 0.0, 0.0, 0.0, 0.0, 0.0, 50.0);
     }
 }

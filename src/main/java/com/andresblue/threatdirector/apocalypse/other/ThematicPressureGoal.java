@@ -1,6 +1,7 @@
 package com.andresblue.threatdirector.apocalypse.other;
 
 import com.andresblue.threatdirector.ThreatDirectorMod;
+import com.andresblue.threatdirector.bloodmoon.BloodMoonModule;
 import com.andresblue.threatdirector.apocalypse.other.OtherHostilePolicy.AbilityRules;
 import com.andresblue.threatdirector.apocalypse.other.OtherHostilePolicy.Family;
 import com.andresblue.threatdirector.apocalypse.other.OtherHostilePolicy.HorizontalVelocity;
@@ -227,12 +228,13 @@ final class ThematicPressureGoal extends Goal {
     }
 
     private Tier tier() {
-        if (!ThreatDirectorMod.isEnabled()) {
+        if (!ThreatDirectorMod.isModdedEnabled()
+                || !ThreatDirectorMod.config().modded().otherHostiles().enabled()) {
             return Tier.EASY;
         }
         return switch (mob.getWorld().getDifficulty()) {
             case NORMAL -> Tier.NORMAL;
-            case HARD -> Tier.HARD;
+            case HARD -> BloodMoonModule.isActive(mob.getWorld()) ? Tier.HARD : Tier.NORMAL;
             default -> Tier.EASY;
         };
     }

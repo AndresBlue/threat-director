@@ -1,5 +1,6 @@
 package com.andresblue.threatdirector.difficulty;
 
+import com.andresblue.threatdirector.bloodmoon.BloodMoonModule;
 import net.minecraft.block.Block;
 import net.minecraft.block.Blocks;
 import net.minecraft.entity.EntityType;
@@ -48,7 +49,9 @@ public final class SpiderDifficultyAbilities {
         }
         if (victim instanceof ServerPlayerEntity player) {
             double chance = ThreatScaling.spiderCobwebChance(
-                    world.getDifficulty().getId(), ThreatScaling.playerThreat(player));
+                    world.getDifficulty().getId(),
+                    ThreatScaling.playerThreat(player),
+                    BloodMoonModule.isActive(world));
             if (chance <= 0.0 || world.random.nextDouble() >= chance) {
                 return false;
             }
@@ -70,10 +73,14 @@ public final class SpiderDifficultyAbilities {
                 || !world.getGameRules().getBoolean(GameRules.DO_MOB_SPAWNING)) {
             return;
         }
-        int count = MinecraftDifficultyProfiles.forWorld(world).spider().hatchlingCount();
+        DifficultyAbilityPolicy.SpiderRules rules = MinecraftDifficultyProfiles.forWorld(world).spider();
+        int count = rules.hatchlingCount();
         LivingEntity attacker = source.getAttacker() instanceof LivingEntity living ? living : null;
         for (int i = 0; i < count; i++) {
-            spawnHatchling(world, parent, attacker, i);
+            if (DifficultyAbilityPolicy.acceptsRoll(
+                    parent.getRandom().nextDouble(), rules.hatchlingSpawnChance())) {
+                spawnHatchling(world, parent, attacker, i);
+            }
         }
     }
 

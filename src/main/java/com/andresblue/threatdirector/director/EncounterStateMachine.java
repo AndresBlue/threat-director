@@ -123,7 +123,7 @@ public final class EncounterStateMachine {
             return transition(runtime, EncounterState.RELIEF, TransitionCause.ENGAGEMENT_TIMEOUT, snapshot);
         }
         if (snapshot.climaxEnabled() && elapsed >= durations.engagingMinBeforeClimax()
-                && snapshot.intensity() >= 75.0 && snapshot.dominance() >= .65
+                && snapshot.intensity() >= 75.0
                 && snapshot.performanceLevel() <= 3) {
             return transition(runtime, EncounterState.CLIMAX, TransitionCause.CLIMAX_READY, snapshot);
         }

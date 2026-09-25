@@ -15,7 +15,6 @@ public final class PlayerDirectorState {
     private final AdventureIntensityCalculator.Hysteresis hysteresis =
             new AdventureIntensityCalculator.Hysteresis(IntensityBand.LOW);
     private final Deque<DamageSample> damageSamples = new ArrayDeque<>();
-    private final Deque<Long> killTicks = new ArrayDeque<>();
 
     private PowerReport powerReport;
     private AdventureIntensityBreakdown breakdown;
@@ -43,9 +42,7 @@ public final class PlayerDirectorState {
     }
 
     public void recordKill(long tick) {
-        killTicks.addLast(tick);
         lastCombatTick = tick;
-        prune(tick);
     }
 
     public void recordDeath(long tick) {
@@ -81,17 +78,9 @@ public final class PlayerDirectorState {
                 .sum();
     }
 
-    public int killsWithin(long now, long windowTicks) {
-        prune(now);
-        return (int) killTicks.stream().filter(tick -> now - tick <= windowTicks).count();
-    }
-
     private void prune(long now) {
         while (!damageSamples.isEmpty() && now - damageSamples.peekFirst().tick > 1_200L) {
             damageSamples.removeFirst();
-        }
-        while (!killTicks.isEmpty() && now - killTicks.peekFirst() > 1_200L) {
-            killTicks.removeFirst();
         }
     }
 

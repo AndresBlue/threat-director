@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import java.nio.charset.StandardCharsets;
@@ -16,35 +15,44 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class ConfigManagerTest {
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Gson GSON = new Gson();
 
     @TempDir
     Path temporaryDirectory;
 
     @Test
-    void firstLoadCreatesAndActivatesVanillaPlusFile() throws Exception {
+    void firstLoadCreatesDocumentedThreeCategoryJson5() throws Exception {
         ConfigManager manager = new ConfigManager(temporaryDirectory);
-
         ThreatDirectorConfig loaded = manager.load();
 
         assertTrue(Files.isRegularFile(manager.configFile()));
         assertSame(loaded, manager.current());
-        assertEquals(Preset.VANILLA_PLUS, loaded.preset());
-        String json = Files.readString(manager.configFile(), StandardCharsets.UTF_8);
-        assertTrue(json.contains("\"schemaVersion\": 3"));
-        assertTrue(json.contains("\"preset\": \"VANILLA_PLUS\""));
-        assertTrue(json.contains("\"simulationOnly\": true"));
+        String json5 = Files.readString(manager.configFile(), StandardCharsets.UTF_8);
+        assertTrue(json5.contains("\"schemaVersion\": 4"));
+        assertTrue(json5.contains("\"general\""));
+        assertTrue(json5.contains("\"vanilla\""));
+        assertTrue(json5.contains("\"modded\""));
+        assertTrue(json5.contains("// Enables or disables this section"));
+        assertTrue(json5.contains("20 ticks per second"));
     }
 
     @Test
-    void generatedFileRoundTripsThroughValidation() throws Exception {
-        ConfigManager firstManager = new ConfigManager(temporaryDirectory);
-        ThreatDirectorConfig generated = firstManager.load();
+    void generatedJson5RoundTripsIncludingComments() throws Exception {
+        ConfigManager first = new ConfigManager(temporaryDirectory);
+        ThreatDirectorConfig generated = first.load();
 
-        ConfigManager secondManager = new ConfigManager(temporaryDirectory);
-        ThreatDirectorConfig loaded = secondManager.load();
+        ConfigManager second = new ConfigManager(temporaryDirectory);
+        assertEquals(generated, second.load());
+    }
 
-        assertEquals(generated, loaded);
+    @Test
+    void everyConfigPropertyReceivesAComment() {
+        ThreatDirectorConfig config = ThreatDirectorConfig.vanillaPlus();
+        String documented = DocumentedConfigWriter.write(config);
+        long propertyCount = countProperties(GSON.toJsonTree(config).getAsJsonObject());
+        long commentCount = documented.lines().filter(line -> line.stripLeading().startsWith("//")).count();
+        // Four header comments plus one immediately preceding every property.
+        assertEquals(propertyCount + 4, commentCount);
     }
 
     @Test
@@ -52,9 +60,9 @@ class ConfigManagerTest {
         ConfigManager manager = new ConfigManager(temporaryDirectory);
         ThreatDirectorConfig valid = manager.load();
         JsonObject invalid = GSON.toJsonTree(valid).getAsJsonObject();
-        invalid.getAsJsonObject("encounter").addProperty("maxMobs", 99);
-        Files.writeString(
-                manager.configFile(), GSON.toJson(invalid), StandardCharsets.UTF_8);
+        invalid.getAsJsonObject("vanilla").getAsJsonObject("encounter")
+                .addProperty("maxMobs", 999);
+        Files.writeString(manager.configFile(), GSON.toJson(invalid), StandardCharsets.UTF_8);
 
         assertThrows(ConfigValidationException.class, manager::reload);
         assertSame(valid, manager.current());
@@ -71,153 +79,85 @@ class ConfigManagerTest {
     }
 
     @Test
-    void jsonNullIsRejectedAsAValidationProblem() throws Exception {
+    void missingBooleanAndUnknownTypoAreRejectedInsteadOfSilentlyDefaulting() throws Exception {
         ConfigManager manager = new ConfigManager(temporaryDirectory);
-        manager.load();
-        Files.writeString(manager.configFile(), "null", StandardCharsets.UTF_8);
+        ThreatDirectorConfig valid = manager.load();
+        JsonObject invalid = GSON.toJsonTree(valid).getAsJsonObject();
+        JsonObject modded = invalid.getAsJsonObject("modded");
+        modded.remove("enabled");
+        modded.addProperty("enabeld", true);
+        Files.writeString(manager.configFile(), GSON.toJson(invalid), StandardCharsets.UTF_8);
 
-        ConfigValidationException exception =
-                assertThrows(ConfigValidationException.class, manager::reload);
+        JsonParseException exception = assertThrows(JsonParseException.class, manager::reload);
 
-        assertTrue(exception.violations().contains("root must be a JSON object"));
+        assertTrue(exception.getMessage().contains("missing modded.enabled"));
+        assertTrue(exception.getMessage().contains("unknown modded.enabeld"));
+        assertSame(valid, manager.current());
     }
 
     @Test
-    void exactV1DefaultsMigrateToApocalypseV3DefaultsAndRewriteFile() throws Exception {
+    void missingCurrentRootCategoryIsRejectedInsteadOfMigratedAsLegacy() throws Exception {
         ConfigManager manager = new ConfigManager(temporaryDirectory);
-        ThreatDirectorConfig legacy = ThreatDirectorConfig.legacyVanillaPlusV1();
-        assertLegacyFingerprint(legacy);
-        Files.writeString(
-                manager.configFile(), GSON.toJson(legacy), StandardCharsets.UTF_8);
+        ThreatDirectorConfig valid = manager.load();
+        JsonObject invalid = GSON.toJsonTree(valid).getAsJsonObject();
+        invalid.remove("modded");
+        Files.writeString(manager.configFile(), GSON.toJson(invalid), StandardCharsets.UTF_8);
 
-        ThreatDirectorConfig loaded = manager.load();
+        JsonParseException exception = assertThrows(JsonParseException.class, manager::reload);
 
-        assertEquals(ThreatDirectorConfig.vanillaPlus(), loaded);
-        ThreatDirectorConfig persisted = GSON.fromJson(
-                Files.readString(manager.configFile(), StandardCharsets.UTF_8),
-                ThreatDirectorConfig.class);
-        assertEquals(loaded, persisted);
+        assertTrue(exception.getMessage().contains("missing modded"));
+        assertSame(valid, manager.current());
     }
 
     @Test
-    void exactV2DefaultsMigrateToApocalypseV3DefaultsAndRewriteFile() throws Exception {
+    void emptyCurrentConfigIsRejectedInsteadOfSilentlyMigrated() throws Exception {
         ConfigManager manager = new ConfigManager(temporaryDirectory);
-        ThreatDirectorConfig legacy = ThreatDirectorConfig.legacyVanillaPlusV2();
-        assertLegacyV2Fingerprint(legacy);
-        Files.writeString(
-                manager.configFile(), GSON.toJson(legacy), StandardCharsets.UTF_8);
+        ThreatDirectorConfig valid = manager.load();
+        Files.writeString(manager.configFile(), "{}", StandardCharsets.UTF_8);
 
-        ThreatDirectorConfig loaded = manager.load();
+        JsonParseException exception = assertThrows(JsonParseException.class, manager::reload);
 
-        assertEquals(ThreatDirectorConfig.vanillaPlus(), loaded);
-        ThreatDirectorConfig persisted = GSON.fromJson(
-                Files.readString(manager.configFile(), StandardCharsets.UTF_8),
-                ThreatDirectorConfig.class);
-        assertEquals(loaded, persisted);
+        assertTrue(exception.getMessage().contains("missing schemaVersion"));
+        assertSame(valid, manager.current());
     }
 
     @Test
-    void customizedLegacyFilePreservesEveryValueExceptSchemaVersion() throws Exception {
+    void legacyJsonMigratesAndKeepsOriginalAsBackup() throws Exception {
+        String legacy = """
+                {
+                  "schemaVersion": 3,
+                  "preset": "VANILLA_PLUS",
+                  "enabled": true,
+                  "director": {"scanIntervalTicks":40,"minimumIntensity":45,"encounterChancePerScan":0.123,"cooldownMinTicks":1200,"cooldownMaxTicks":2400,"requireNightOrDarkness":true,"allowedDimensions":["minecraft:overworld"]},
+                  "intensity": {"sampleIntervalTicks":100,"smoothingAlpha":0.15,"hysteresisPoints":5,"maxIntensity":100,"minimumHealthRatio":0.5,"recentDamageWindowTicks":200,"recentDeathCooldownTicks":12000,"defenseCap":35,"offenseCap":30,"sustainCap":15,"groupCap":10,"contextCap":10,"stressPenaltyCap":30},
+                  "encounter": {"minMobs":4,"maxMobs":32,"hardMaxMobs":96,"maxActiveEncounters":2,"recruitRadius":64,"spawnMinDistance":32,"spawnMaxDistance":64,"maxNearbyHostiles":160,"allowDirectorSpawnedCreepers":true,"stalkingMinTicks":80,"stalkingMaxTicks":180,"positioningMaxTicks":120,"engagingMaxTicks":2400,"reliefTicks":100,"contactLossTicks":400,"maxPursuitDistance":128,"allowedMobIds":["minecraft:zombie"],"threatCosts":{"minecraft:zombie":1}},
+                  "tactical": {"positionMinRadius":12,"positionMaxRadius":24,"maxCandidatesPerSnapshot":64,"maxPathAttemptsPerMob":5,"replanIntervalTicks":20,"targetMoveReplanDistance":5,"maxSimultaneousMeleeAttackers":4},
+                  "multiplayer": {"groupRadius":24,"additionalPlayerScale":0.35,"maxGroupMultiplier":1.75},
+                  "performance": {"workBudgetMicrosPerTick":20000,"maxPlannerOperationsPerTick":192,"degradeAfterTicks":100,"recoverAfterTicks":600,"level1TickTimeMs":45,"level2TickTimeMs":55,"level3TickTimeMs":70,"level4TickTimeMs":90,"level5TickTimeMs":120,"level6TickTimeMs":160},
+                  "breachSimulation": {"enabled":true,"simulationOnly":true,"maxRayDistance":6,"maxBlocksInPlan":2,"maxBlockHardness":1.5,"spawnProtectionRadius":128},
+                  "telemetry": {"enabled":false,"queueCapacity":256,"flushBatchSize":32,"includePlayerUuid":false},
+                  "integrations": {"enableExternalAdapters":false,"forceVanillaMobs":true},
+                  "debug": {"detailedLogging":false,"particleDurationTicks":100}
+                }
+                """;
         ConfigManager manager = new ConfigManager(temporaryDirectory);
-        JsonObject customizedJson = GSON.toJsonTree(
-                ThreatDirectorConfig.legacyVanillaPlusV1()).getAsJsonObject();
-        customizedJson.getAsJsonObject("director")
-                .addProperty("encounterChancePerScan", 0.123);
-        customizedJson.getAsJsonObject("encounter").addProperty("maxMobs", 7);
-        customizedJson.getAsJsonObject("tactical")
-                .addProperty("maxCandidatesPerSnapshot", 21);
-        customizedJson.getAsJsonObject("performance")
-                .addProperty("maxPlannerOperationsPerTick", 9);
-        ThreatDirectorConfig customizedV1 = GSON.fromJson(
-                customizedJson, ThreatDirectorConfig.class);
-        Files.writeString(
-                manager.configFile(), GSON.toJson(customizedV1), StandardCharsets.UTF_8);
+        Files.writeString(manager.legacyConfigFile(), legacy, StandardCharsets.UTF_8);
 
-        ThreatDirectorConfig loaded = manager.load();
+        ThreatDirectorConfig migrated = manager.load();
 
-        ThreatDirectorConfig expected = withCurrentSchema(customizedV1);
-        assertEquals(expected, loaded);
-        ThreatDirectorConfig persisted = GSON.fromJson(
-                Files.readString(manager.configFile(), StandardCharsets.UTF_8),
-                ThreatDirectorConfig.class);
-        assertEquals(expected, persisted);
+        assertEquals(4, migrated.schemaVersion());
+        assertEquals(0.123, migrated.director().encounterChancePerScan());
+        assertTrue(Files.isRegularFile(manager.legacyConfigFile()));
+        assertTrue(Files.isRegularFile(manager.configFile()));
     }
 
-    @Test
-    void customizedV2FileAlsoPreservesEveryValueExceptSchemaVersion() throws Exception {
-        ConfigManager manager = new ConfigManager(temporaryDirectory);
-        JsonObject customizedJson = GSON.toJsonTree(
-                ThreatDirectorConfig.legacyVanillaPlusV2()).getAsJsonObject();
-        customizedJson.getAsJsonObject("encounter").addProperty("hardMaxMobs", 15);
-        customizedJson.getAsJsonObject("performance")
-                .addProperty("workBudgetMicrosPerTick", 4_250);
-        ThreatDirectorConfig customizedV2 = GSON.fromJson(
-                customizedJson, ThreatDirectorConfig.class);
-        Files.writeString(
-                manager.configFile(), GSON.toJson(customizedV2), StandardCharsets.UTF_8);
-
-        ThreatDirectorConfig loaded = manager.load();
-
-        ThreatDirectorConfig expected = withCurrentSchema(customizedV2);
-        assertEquals(expected, loaded);
-        ThreatDirectorConfig persisted = GSON.fromJson(
-                Files.readString(manager.configFile(), StandardCharsets.UTF_8),
-                ThreatDirectorConfig.class);
-        assertEquals(expected, persisted);
-    }
-
-    private static void assertLegacyFingerprint(ThreatDirectorConfig legacy) {
-        assertEquals(1, legacy.schemaVersion());
-        assertEquals(100, legacy.director().scanIntervalTicks());
-        assertEquals(0.015, legacy.director().encounterChancePerScan());
-        assertEquals(9_600, legacy.director().cooldownMinTicks());
-        assertEquals(14_400, legacy.director().cooldownMaxTicks());
-        assertEquals(6, legacy.encounter().maxMobs());
-        assertEquals(8, legacy.encounter().hardMaxMobs());
-        assertEquals(16, legacy.encounter().maxNearbyHostiles());
-        assertEquals(16, legacy.tactical().maxCandidatesPerSnapshot());
-        assertEquals(2, legacy.tactical().maxPathAttemptsPerMob());
-        assertEquals(40, legacy.tactical().replanIntervalTicks());
-        assertEquals(2, legacy.tactical().maxSimultaneousMeleeAttackers());
-        assertEquals(2_000, legacy.performance().workBudgetMicrosPerTick());
-        assertEquals(4, legacy.performance().maxPlannerOperationsPerTick());
-        assertEquals(35.0, legacy.performance().level1TickTimeMs());
-        assertEquals(80.0, legacy.performance().level6TickTimeMs());
-    }
-
-    private static void assertLegacyV2Fingerprint(ThreatDirectorConfig legacy) {
-        assertEquals(2, legacy.schemaVersion());
-        assertEquals(60, legacy.director().scanIntervalTicks());
-        assertEquals(0.04, legacy.director().encounterChancePerScan());
-        assertEquals(3_600, legacy.director().cooldownMinTicks());
-        assertEquals(7_200, legacy.director().cooldownMaxTicks());
-        assertEquals(8, legacy.encounter().maxMobs());
-        assertEquals(12, legacy.encounter().hardMaxMobs());
-        assertEquals(24, legacy.encounter().maxNearbyHostiles());
-        assertEquals(32, legacy.tactical().maxCandidatesPerSnapshot());
-        assertEquals(4, legacy.tactical().maxPathAttemptsPerMob());
-        assertEquals(30, legacy.tactical().replanIntervalTicks());
-        assertEquals(3, legacy.tactical().maxSimultaneousMeleeAttackers());
-        assertEquals(3_500, legacy.performance().workBudgetMicrosPerTick());
-        assertEquals(48, legacy.performance().maxPlannerOperationsPerTick());
-        assertEquals(40.0, legacy.performance().level1TickTimeMs());
-        assertEquals(100.0, legacy.performance().level6TickTimeMs());
-    }
-
-    private static ThreatDirectorConfig withCurrentSchema(ThreatDirectorConfig config) {
-        return new ThreatDirectorConfig(
-                ThreatDirectorConfig.CURRENT_SCHEMA_VERSION,
-                config.preset(),
-                config.enabled(),
-                config.director(),
-                config.intensity(),
-                config.encounter(),
-                config.tactical(),
-                config.multiplayer(),
-                config.performance(),
-                config.breachSimulation(),
-                config.telemetry(),
-                config.integrations(),
-                config.debug());
+    private static long countProperties(JsonObject object) {
+        long count = object.entrySet().size();
+        for (var entry : object.entrySet()) {
+            if (entry.getValue().isJsonObject()) {
+                count += countProperties(entry.getValue().getAsJsonObject());
+            }
+        }
+        return count;
     }
 }

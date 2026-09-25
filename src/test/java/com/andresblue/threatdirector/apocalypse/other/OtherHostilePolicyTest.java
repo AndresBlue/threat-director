@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 
 class OtherHostilePolicyTest {
     @Test
-    void easyIsVanillaNormalIsPartialAndHardRetainsTargets() {
+    void easyIsVanillaAndBloodMoonRestoresHardTargetingPeak() {
         assertFalse(OtherHostilePolicy.pressure(Tier.EASY).enabled());
 
         var normal = OtherHostilePolicy.pressure(Tier.NORMAL);
@@ -22,9 +22,14 @@ class OtherHostilePolicyTest {
 
         var hard = OtherHostilePolicy.pressure(Tier.HARD);
         assertTrue(hard.enabled());
-        assertEquals(48.0D, hard.minimumTargetRange());
-        assertFalse(hard.requiresVisibility());
+        assertEquals(40.0D, hard.minimumTargetRange());
+        assertTrue(hard.requiresVisibility());
         assertTrue(hard.unseenMemoryTicks() > normal.unseenMemoryTicks());
+
+        var bloodMoon = OtherHostilePolicy.pressure(Tier.HARD, true);
+        assertEquals(48.0D, bloodMoon.minimumTargetRange());
+        assertFalse(bloodMoon.requiresVisibility());
+        assertTrue(bloodMoon.unseenMemoryTicks() > hard.unseenMemoryTicks());
     }
 
     @Test

@@ -35,7 +35,8 @@ class SkeletonCombatPolicyTest {
                 3,
                 0, 1, 0,
                 20, 2, 0,
-                0, 0, 0.25);
+                0, 0, 0.25,
+                true);
 
         assertTrue(normal.z() > 0.0);
         assertTrue(hard.z() > normal.z());
@@ -51,7 +52,8 @@ class SkeletonCombatPolicyTest {
                 3,
                 0, 1, 0,
                 8, 2, 0,
-                0, 0, 0.5);
+                0, 0, 0.5,
+                true);
 
         assertEquals(0.0, hard.z(), EPSILON);
         assertEquals(0.5F, hard.divergence());
@@ -68,24 +70,26 @@ class SkeletonCombatPolicyTest {
 
     @Test
     void hardRollsAcrossAllFourVanillaEffects() {
-        assertFalse(SkeletonCombatPolicy.arrowPayload(3, 0.50).appliesEffect());
+        assertFalse(SkeletonCombatPolicy.arrowPayload(3, 0.50, 0.5, true).appliesEffect());
         assertEquals(
                 SkeletonCombatPolicy.ArrowEffect.SLOWNESS,
-                SkeletonCombatPolicy.arrowPayload(3, 0.70).effect());
+                SkeletonCombatPolicy.arrowPayload(3, 0.70, 0.5, true).effect());
         assertEquals(
                 SkeletonCombatPolicy.ArrowEffect.POISON,
-                SkeletonCombatPolicy.arrowPayload(3, 0.80).effect());
+                SkeletonCombatPolicy.arrowPayload(3, 0.80, 0.5, true).effect());
         assertEquals(
                 SkeletonCombatPolicy.ArrowEffect.NAUSEA,
-                SkeletonCombatPolicy.arrowPayload(3, 0.88).effect());
+                SkeletonCombatPolicy.arrowPayload(3, 0.88, 0.5, true).effect());
         assertEquals(
                 SkeletonCombatPolicy.ArrowEffect.BLINDNESS,
-                SkeletonCombatPolicy.arrowPayload(3, 0.96).effect());
+                SkeletonCombatPolicy.arrowPayload(3, 0.96, 0.5, true).effect());
     }
 
     @Test
     void dashRequiresHardGroundVisibilityCooldownAndCloseTarget() {
-        assertTrue(SkeletonCombatPolicy.canDash(3, true, true, 0, 36.0));
+        assertFalse(SkeletonCombatPolicy.canDash(3, true, true, 0, 36.0));
+        assertTrue(SkeletonCombatPolicy.canDash(3, true, true, 0, 36.0, true));
+        assertTrue(SkeletonCombatPolicy.canDash(3, true, true, 0, 16.0));
         assertFalse(SkeletonCombatPolicy.canDash(2, true, true, 0, 36.0));
         assertFalse(SkeletonCombatPolicy.canDash(3, false, true, 0, 36.0));
         assertFalse(SkeletonCombatPolicy.canDash(3, true, false, 0, 36.0));
@@ -107,9 +111,11 @@ class SkeletonCombatPolicyTest {
     void difficultyControlsRangeWithoutChangingVanillaCadence() {
         assertEquals(15.0, SkeletonCombatPolicy.rangedAttackRange(1), EPSILON);
         assertEquals(64.0, SkeletonCombatPolicy.rangedAttackRange(2), EPSILON);
-        assertEquals(128.0, SkeletonCombatPolicy.rangedAttackRange(3), EPSILON);
+        assertEquals(80.0, SkeletonCombatPolicy.rangedAttackRange(3), EPSILON);
+        assertEquals(128.0, SkeletonCombatPolicy.rangedAttackRange(3, true), EPSILON);
         assertEquals(40, SkeletonCombatPolicy.rangedAttackInterval(2));
-        assertEquals(20, SkeletonCombatPolicy.rangedAttackInterval(3));
+        assertEquals(30, SkeletonCombatPolicy.rangedAttackInterval(3));
+        assertEquals(20, SkeletonCombatPolicy.rangedAttackInterval(3, true));
     }
 
     @Test

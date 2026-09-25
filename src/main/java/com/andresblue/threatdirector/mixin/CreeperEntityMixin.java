@@ -1,10 +1,13 @@
 package com.andresblue.threatdirector.mixin;
 
 import com.andresblue.threatdirector.ThreatDirectorMod;
+import com.andresblue.threatdirector.bloodmoon.BloodMoonModule;
 import com.andresblue.threatdirector.creeper.ApocalypticCreeperPolicy;
 import com.andresblue.threatdirector.creeper.ApocalypticCreeperPolicy.HorizontalVelocity;
 import com.andresblue.threatdirector.creeper.ApocalypticCreeperPolicy.Mode;
 import com.andresblue.threatdirector.creeper.ApocalypticCreeperPolicy.Profile;
+import com.andresblue.threatdirector.creeper.CreeperBreachCoordinator;
+import com.andresblue.threatdirector.creeper.CreeperBreachCoordinator.Directive;
 import com.andresblue.threatdirector.server.MobGriefingGuard;
 import com.andresblue.threatdirector.server.ThreatScaling;
 import java.util.UUID;
@@ -15,8 +18,8 @@ import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.mob.CreeperEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.Difficulty;
 import net.minecraft.world.World;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -49,6 +52,12 @@ public abstract class CreeperEntityMixin {
     @Unique
     private int threatdirector$dashCooldownTicks;
 
+    @Unique
+    private UUID threatdirector$rememberedPlayerId;
+
+    @Unique
+    private long threatdirector$targetMemoryExpiresAtTick;
+
     @Inject(method = "tick", at = @At("HEAD"))
     private void threatdirector$applyApocalypticBehavior(CallbackInfo callbackInfo) {
         CreeperEntity creeper = (CreeperEntity) (Object) this;
@@ -57,12 +66,14 @@ public abstract class CreeperEntityMixin {
             return;
         }
 
-        LivingEntity target = creeper.getTarget();
+        ServerWorld serverWorld = (ServerWorld) world;
+        LivingEntity target = threatdirector$rememberOrRestoreTarget(creeper, serverWorld);
         double targetThreat = target instanceof ServerPlayerEntity player
                 ? ThreatScaling.playerThreat(player)
                 : 0.0;
-        Mode mode = ThreatDirectorMod.isEnabled()
-                ? threatdirector$mode(world.getDifficulty(), targetThreat)
+        Mode mode = ThreatDirectorMod.isModdedEnabled()
+                && ThreatDirectorMod.config().modded().creeper().enabled()
+                ? threatdirector$mode(world, targetThreat)
                 : Mode.VANILLA;
         Profile profile = ApocalypticCreeperPolicy.profile(mode);
         if (threatdirector$dashCooldownTicks > 0) {
@@ -95,24 +106,41 @@ public abstract class CreeperEntityMixin {
                 distanceSquared
         )) {
             threatdirector$dashToward(creeper, target);
-            threatdirector$dashCooldownTicks = ApocalypticCreeperPolicy.DASH_COOLDOWN_TICKS;
+            threatdirector$dashCooldownTicks = ThreatDirectorMod.config().modded().creeper()
+                    .dashCooldownTicks();
+        }
+
+        Directive breach = target instanceof ServerPlayerEntity player
+                && ThreatDirectorMod.config().modded().creeper().coordinatedBreaching()
+                ? CreeperBreachCoordinator.directive(serverWorld, creeper, player)
+                : new Directive(false, null);
+        if (breach.designated() && !priming
+                && Math.floorMod(creeper.age + creeper.getId(), 10) == 0) {
+            BlockPos wall = breach.wallPosition();
+            creeper.getNavigation().startMovingTo(
+                    wall.getX() + 0.5D, wall.getY(), wall.getZ() + 0.5D, 1.15D);
         }
 
         boolean movementObstructed = creeper.horizontalCollision || creeper.getNavigation().isIdle();
-        boolean wallCandidate = ApocalypticCreeperPolicy.isWallFuseCandidate(
+        boolean coordinatedBreach = !priming
+                && CreeperBreachCoordinator.isAtBreachPoint(creeper, breach);
+        boolean legacyWallCandidate = !(target instanceof ServerPlayerEntity)
+                && ApocalypticCreeperPolicy.isWallFuseCandidate(
                 profile,
                 targetPresent,
-                world instanceof ServerWorld serverWorld
-                        && MobGriefingGuard.permits(serverWorld, creeper.getBlockPos()),
+                MobGriefingGuard.permits(serverWorld, creeper.getBlockPos()),
                 targetVisible,
                 movementObstructed,
                 priming,
                 distanceSquared
         );
+        boolean wallCandidate = coordinatedBreach || legacyWallCandidate;
         threatdirector$wallBlockedTicks = wallCandidate
-                ? Math.min(ApocalypticCreeperPolicy.WALL_FUSE_DELAY_TICKS, threatdirector$wallBlockedTicks + 1)
+                ? Math.min(ThreatDirectorMod.config().modded().creeper().breachFuseDelayTicks(),
+                threatdirector$wallBlockedTicks + 1)
                 : 0;
-        if (threatdirector$wallBlockedTicks >= ApocalypticCreeperPolicy.WALL_FUSE_DELAY_TICKS) {
+        if (threatdirector$wallBlockedTicks >= ThreatDirectorMod.config().modded().creeper()
+                .breachFuseDelayTicks()) {
             creeper.ignite();
             creeper.setFuseSpeed(1);
             threatdirector$wallBlockedTicks = 0;
@@ -123,13 +151,15 @@ public abstract class CreeperEntityMixin {
     }
 
     @Unique
-    private static Mode threatdirector$mode(Difficulty difficulty, double threat) {
-        if (threat < ThreatScaling.ACTIVATION_THREAT) {
+    private static Mode threatdirector$mode(World world, double threat) {
+        if (threat < ThreatScaling.activationThreat()) {
             return Mode.VANILLA;
         }
-        return switch (difficulty) {
+        return switch (world.getDifficulty()) {
             case NORMAL -> Mode.PARTIAL;
-            case HARD -> threat >= 70.0 ? Mode.APOCALYPTIC : Mode.PARTIAL;
+            case HARD -> threat >= 70.0 && BloodMoonModule.isActive(world)
+                    ? Mode.APOCALYPTIC
+                    : Mode.PARTIAL;
             default -> Mode.VANILLA;
         };
     }
@@ -144,6 +174,54 @@ public abstract class CreeperEntityMixin {
                 targetToCreeper.x,
                 targetToCreeper.z
         );
+    }
+
+    @Unique
+    private LivingEntity threatdirector$rememberOrRestoreTarget(
+            CreeperEntity creeper,
+            ServerWorld world
+    ) {
+        LivingEntity current = creeper.getTarget();
+        if (current instanceof ServerPlayerEntity player && player.isAlive()) {
+            double threat = ThreatScaling.playerThreat(player);
+            if (ThreatDirectorMod.isModdedEnabled()
+                    && ThreatDirectorMod.config().modded().creeper().enabled()
+                    && world.getDifficulty().getId() >= 2
+                    && threat >= ThreatScaling.activationThreat()) {
+                threatdirector$rememberedPlayerId = player.getUuid();
+                threatdirector$targetMemoryExpiresAtTick = world.getTime()
+                        + ThreatDirectorMod.config().modded().creeper().targetMemorySeconds() * 20L;
+            }
+            return current;
+        }
+        if (threatdirector$rememberedPlayerId == null) {
+            return current;
+        }
+
+        ServerPlayerEntity remembered = world.getServer().getPlayerManager()
+                .getPlayer(threatdirector$rememberedPlayerId);
+        double threat = ThreatScaling.playerThreat(remembered);
+        boolean shouldRestore = remembered != null
+                && ApocalypticCreeperPolicy.shouldRetainPlayerTarget(
+                ThreatDirectorMod.isModdedEnabled(),
+                world.getDifficulty().getId(),
+                threat,
+                ThreatScaling.activationThreat(),
+                remembered.isAlive(),
+                remembered.getWorld() == world,
+                threatdirector$targetMemoryExpiresAtTick - world.getTime(),
+                creeper.squaredDistanceTo(remembered));
+        if (!shouldRestore) {
+            threatdirector$rememberedPlayerId = null;
+            return current;
+        }
+        creeper.setTarget(remembered);
+        // A wall may make vanilla clear the goal again on this same tick. Refreshing
+        // the grace window here means LOS alone never expires the target; death,
+        // dimension changes, low threat or leaving the 48-block leash still do.
+        threatdirector$targetMemoryExpiresAtTick = world.getTime()
+                + ThreatDirectorMod.config().modded().creeper().targetMemorySeconds() * 20L;
+        return remembered;
     }
 
     @Unique

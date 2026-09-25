@@ -19,6 +19,8 @@ class EncounterPressureTest {
             new EncounterPressure.Context(Difficulty.HARD, false, false, false);
     private static final EncounterPressure.Context HARD_CAVE_NIGHT =
             new EncounterPressure.Context(Difficulty.HARD, true, true, true);
+    private static final EncounterPressure.Context HARD_BLOOD_MOON =
+            new EncounterPressure.Context(Difficulty.HARD, true, true, false, true);
 
     @Test
     void difficultyProducesStrictlyIncreasingSurfacePressure() {
@@ -34,41 +36,41 @@ class EncounterPressureTest {
         assertTrue(easy.encounterChance() < normal.encounterChance());
         assertTrue(normal.encounterChance() < hard.encounterChance());
         assertEquals(0.0, easy.encounterChance(), 1.0e-9);
-        assertEquals(0.09, normal.encounterChance(), 1.0e-9);
-        assertEquals(0.30, hard.encounterChance(), 1.0e-9);
+        assertEquals(0.075, normal.encounterChance(), 1.0e-9);
+        assertEquals(0.165, hard.encounterChance(), 1.0e-9);
         assertTrue(easy.mobCap() < normal.mobCap());
         assertTrue(normal.mobCap() < hard.mobCap());
         assertEquals(6, easy.mobCap());
         assertEquals(32, normal.mobCap());
-        assertEquals(64, hard.mobCap());
+        assertEquals(45, hard.mobCap());
         assertTrue(easy.minimumMobs() < normal.minimumMobs());
         assertTrue(normal.minimumMobs() < hard.minimumMobs());
         assertEquals(4, easy.minimumMobs());
-        assertEquals(11, normal.minimumMobs());
-        assertEquals(23, hard.minimumMobs());
+        assertEquals(8, normal.minimumMobs());
+        assertEquals(12, hard.minimumMobs());
         assertTrue(easy.meleeAttackers() < normal.meleeAttackers());
         assertTrue(normal.meleeAttackers() < hard.meleeAttackers());
         assertEquals(2, easy.meleeAttackers());
-        assertEquals(8, normal.meleeAttackers());
-        assertEquals(23, hard.meleeAttackers());
+        assertEquals(6, normal.meleeAttackers());
+        assertEquals(9, hard.meleeAttackers());
         assertTrue(easy.replanIntervalTicks() > normal.replanIntervalTicks());
         assertTrue(normal.replanIntervalTicks() > hard.replanIntervalTicks());
         assertTrue(easy.reinforcementSize() < normal.reinforcementSize());
         assertTrue(normal.reinforcementSize() < hard.reinforcementSize());
         assertEquals(0, easy.reinforcementSize());
-        assertEquals(4, normal.reinforcementSize());
-        assertEquals(13, hard.reinforcementSize());
+        assertEquals(3, normal.reinforcementSize());
+        assertEquals(6, hard.reinforcementSize());
         assertTrue(normal.reinforcementIntervalTicks() > hard.reinforcementIntervalTicks());
-        assertEquals(150, normal.reinforcementIntervalTicks());
-        assertEquals(100, hard.reinforcementIntervalTicks());
+        assertEquals(260, normal.reinforcementIntervalTicks());
+        assertEquals(200, hard.reinforcementIntervalTicks());
         assertTrue(easy.cooldownMultiplier() > normal.cooldownMultiplier());
         assertTrue(normal.cooldownMultiplier() > hard.cooldownMultiplier());
         assertEquals(1.5, easy.cooldownMultiplier());
-        assertEquals(1.0, normal.cooldownMultiplier());
-        assertEquals(0.35, hard.cooldownMultiplier());
+        assertEquals(1.15, normal.cooldownMultiplier());
+        assertEquals(0.75, hard.cooldownMultiplier());
         assertEquals(0, easy.maximumReinforcementWaves());
-        assertEquals(6, normal.maximumReinforcementWaves());
-        assertEquals(10, hard.maximumReinforcementWaves());
+        assertEquals(3, normal.maximumReinforcementWaves());
+        assertEquals(5, hard.maximumReinforcementWaves());
         assertEquals("easy:surface", easy.zoneLabel());
         assertEquals("normal:surface", normal.zoneLabel());
         assertEquals("hard:surface", hard.zoneLabel());
@@ -117,13 +119,29 @@ class EncounterPressureTest {
         assertEquals(1.0, forced.hazard());
         assertEquals(20.0, forced.effectiveIntensity());
         assertTrue(adaptive.effectiveIntensity() > forced.effectiveIntensity());
-        assertEquals(config.encounter().hardMaxMobs(), forced.mobCap());
-        assertEquals(34, forced.minimumMobs());
-        assertEquals(34, forced.meleeAttackers());
-        assertEquals(20, forced.reinforcementSize());
-        assertEquals(10, forced.maximumReinforcementWaves());
-        assertEquals(80, forced.reinforcementIntervalTicks());
-        assertEquals(0.15, forced.cooldownMultiplier());
+        assertEquals(61, forced.mobCap());
+        assertEquals(16, forced.minimumMobs());
+        assertEquals(13, forced.meleeAttackers());
+        assertEquals(7, forced.reinforcementSize());
+        assertEquals(5, forced.maximumReinforcementWaves());
+        assertEquals(140, forced.reinforcementIntervalTicks());
+        assertEquals(0.50, forced.cooldownMultiplier());
+    }
+
+    @Test
+    void bloodMoonRestoresTheFormerApocalypsePeak() {
+        ThreatDirectorConfig config = ThreatDirectorConfig.vanillaPlus();
+        EncounterPressure ordinary = EncounterPressure.calculate(
+                config, 100.0, false,
+                new EncounterPressure.Context(Difficulty.HARD, true, true, false));
+        EncounterPressure bloodMoon = EncounterPressure.calculate(
+                config, 100.0, false, HARD_BLOOD_MOON);
+
+        assertTrue(bloodMoon.encounterChance() > ordinary.encounterChance());
+        assertTrue(bloodMoon.mobCap() > ordinary.mobCap());
+        assertEquals(10, bloodMoon.maximumReinforcementWaves());
+        assertEquals(0.23, bloodMoon.cooldownMultiplier(), 1.0e-9);
+        assertTrue(bloodMoon.zoneLabel().contains("blood_moon"));
     }
 
     @Test

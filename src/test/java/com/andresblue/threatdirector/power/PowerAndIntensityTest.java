@@ -93,7 +93,7 @@ class PowerAndIntensityTest {
         return new AdventureSignals(
                 List.of(0.0),
                 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                0L, 0L, 100.0, 0, 0.0, 0.0,
+                0L, 0L, 100.0,
                 20.0, 20.0, 0.0, 0.0, false, 12_000L,
                 0.0, 0.0, playTimeProgress, experienceProgress);
     }

@@ -1,5 +1,8 @@
 package com.andresblue.threatdirector.apocalypse;
 
+import com.andresblue.threatdirector.config.ConfigAccess;
+import com.andresblue.threatdirector.config.ThreatDirectorConfig;
+
 /**
  * Pure balance and ballistics rules for the server-side skeleton module.
  * Minecraft difficulty ids are used deliberately so this class can be tested
@@ -9,7 +12,8 @@ public final class SkeletonCombatPolicy {
     public static final double VANILLA_RANGE = 15.0;
     /** Maximum enhanced range at full threat. The live goal scales this per player. */
     public static final double NORMAL_RANGE = 64.0;
-    public static final double HARD_RANGE = 128.0;
+    public static final double HARD_RANGE = 80.0;
+    public static final double BLOOD_MOON_RANGE = 128.0;
 
     private static final int NORMAL_DIFFICULTY_ID = 2;
     private static final int HARD_DIFFICULTY_ID = 3;
@@ -29,17 +33,44 @@ public final class SkeletonCombatPolicy {
     }
 
     public static double rangedAttackRange(int difficultyId) {
+        return rangedAttackRange(difficultyId, false);
+    }
+
+    public static double rangedAttackRange(int difficultyId, boolean bloodMoon) {
+        if (ConfigAccess.current().moddedEnabled()
+                && ConfigAccess.current().modded().skeleton().enabled()) {
+            ThreatDirectorConfig.SkeletonSection config = ConfigAccess.current().modded().skeleton();
+            if (difficultyId >= HARD_DIFFICULTY_ID) {
+                return bloodMoon ? config.bloodMoonRange() : config.hardRange();
+            }
+            if (difficultyId >= NORMAL_DIFFICULTY_ID) {
+                return config.normalRange();
+            }
+        }
+        var targeting = ConfigAccess.current().vanilla().targeting();
         if (difficultyId >= HARD_DIFFICULTY_ID) {
-            return HARD_RANGE;
+            return targeting.hardSkeletonRange();
         }
         if (difficultyId >= NORMAL_DIFFICULTY_ID) {
-            return NORMAL_RANGE;
+            return targeting.normalSkeletonRange();
         }
         return VANILLA_RANGE;
     }
 
     public static int rangedAttackInterval(int difficultyId) {
-        return difficultyId >= HARD_DIFFICULTY_ID ? 20 : 40;
+        return rangedAttackInterval(difficultyId, false);
+    }
+
+    public static int rangedAttackInterval(int difficultyId, boolean bloodMoon) {
+        if (ConfigAccess.current().moddedEnabled()
+                && ConfigAccess.current().modded().skeleton().enabled()) {
+            ThreatDirectorConfig.SkeletonSection config = ConfigAccess.current().modded().skeleton();
+            return difficultyId >= HARD_DIFFICULTY_ID
+                    ? bloodMoon ? config.bloodMoonAttackIntervalTicks()
+                    : config.hardAttackIntervalTicks()
+                    : config.normalAttackIntervalTicks();
+        }
+        return difficultyId >= HARD_DIFFICULTY_ID ? (bloodMoon ? 20 : 30) : 40;
     }
 
     public static AimVector solveAim(
@@ -53,13 +84,39 @@ public final class SkeletonCombatPolicy {
             double targetVelocityX,
             double targetVelocityY,
             double targetVelocityZ) {
+        return solveAim(
+                difficultyId,
+                originX,
+                originY,
+                originZ,
+                targetX,
+                targetY,
+                targetZ,
+                targetVelocityX,
+                targetVelocityY,
+                targetVelocityZ,
+                false);
+    }
+
+    public static AimVector solveAim(
+            int difficultyId,
+            double originX,
+            double originY,
+            double originZ,
+            double targetX,
+            double targetY,
+            double targetZ,
+            double targetVelocityX,
+            double targetVelocityY,
+            double targetVelocityZ,
+            boolean bloodMoon) {
         double deltaX = targetX - originX;
         double deltaY = targetY - originY;
         double deltaZ = targetZ - originZ;
         double horizontalDistance = Math.hypot(deltaX, deltaZ);
         float vanillaDivergence = 14.0F - clampDifficulty(difficultyId) * 4.0F;
         float projectileSpeed = difficultyId >= HARD_DIFFICULTY_ID
-                ? 2.2F
+                ? bloodMoon ? 2.2F : 1.95F
                 : difficultyId >= NORMAL_DIFFICULTY_ID ? 1.8F : (float) VANILLA_ARROW_SPEED;
 
         if (!isEnhancedDifficulty(difficultyId)
@@ -69,10 +126,14 @@ public final class SkeletonCombatPolicy {
                     deltaY + horizontalDistance * 0.2,
                     deltaZ,
                     projectileSpeed,
-                    difficultyId >= HARD_DIFFICULTY_ID ? 0.5F : vanillaDivergence);
+                    difficultyId >= HARD_DIFFICULTY_ID
+                            ? bloodMoon ? 0.5F : 2.0F
+                            : vanillaDivergence);
         }
 
-        double predictionStrength = difficultyId >= HARD_DIFFICULTY_ID ? 0.85 : 0.45;
+        double predictionStrength = difficultyId >= HARD_DIFFICULTY_ID
+                ? bloodMoon ? 0.85 : 0.65
+                : 0.45;
         double predictionTicks = Math.min(horizontalDistance / projectileSpeed, MAX_PREDICTION_TICKS);
         double leadX = clamp(
                 finiteOrZero(targetVelocityX) * predictionTicks * predictionStrength,
@@ -90,7 +151,9 @@ public final class SkeletonCombatPolicy {
         double predictedX = deltaX + leadX;
         double predictedZ = deltaZ + leadZ;
         double predictedHorizontalDistance = Math.hypot(predictedX, predictedZ);
-        float divergence = difficultyId >= HARD_DIFFICULTY_ID ? 0.25F : 3.0F;
+        float divergence = difficultyId >= HARD_DIFFICULTY_ID
+                ? bloodMoon ? 0.25F : 1.5F
+                : 3.0F;
         return new AimVector(
                 predictedX,
                 deltaY + leadY + predictedHorizontalDistance * 0.2,
@@ -105,32 +168,49 @@ public final class SkeletonCombatPolicy {
      * independent samples for less predictable timing.
      */
     public static ArrowPayload arrowPayload(int difficultyId, double roll) {
-        return arrowPayload(difficultyId, roll, roll);
+        return arrowPayload(difficultyId, roll, roll, false);
     }
 
     public static ArrowPayload arrowPayload(int difficultyId, double roll, double durationRoll) {
+        return arrowPayload(difficultyId, roll, durationRoll, false);
+    }
+
+    public static ArrowPayload arrowPayload(
+            int difficultyId, double roll, double durationRoll, boolean bloodMoon) {
+        if (!ConfigAccess.current().moddedEnabled()
+                || !ConfigAccess.current().modded().skeleton().enabled()
+                || !ConfigAccess.current().modded().skeleton().effectArrows()) {
+            return ArrowPayload.NONE;
+        }
         if (!Double.isFinite(roll) || roll < 0.0 || roll >= 1.0) {
             return ArrowPayload.NONE;
         }
         if (difficultyId < NORMAL_DIFFICULTY_ID) {
             return ArrowPayload.NONE;
         }
+        ThreatDirectorConfig.SkeletonSection config = ConfigAccess.current().modded().skeleton();
         if (difficultyId < HARD_DIFFICULTY_ID) {
-            return roll < 0.10
+            return roll < config.normalEffectChance()
                     ? new ArrowPayload(ArrowEffect.SLOWNESS, effectDurationTicks(durationRoll), 0)
                     : ArrowPayload.NONE;
         }
 
-        if (roll < 0.68) {
+        double noEffectThreshold = 1.0
+                - (bloodMoon ? config.bloodMoonEffectChance() : config.hardEffectChance());
+        double effectBand = (1.0 - noEffectThreshold) / 4.0;
+        if (roll < noEffectThreshold) {
             return ArrowPayload.NONE;
         }
-        if (roll < 0.76) {
-            return new ArrowPayload(ArrowEffect.SLOWNESS, effectDurationTicks(durationRoll), 1);
+        if (roll < noEffectThreshold + effectBand) {
+            return new ArrowPayload(
+                    ArrowEffect.SLOWNESS,
+                    effectDurationTicks(durationRoll),
+                    bloodMoon ? 1 : 0);
         }
-        if (roll < 0.84) {
+        if (roll < noEffectThreshold + effectBand * 2.0) {
             return new ArrowPayload(ArrowEffect.POISON, effectDurationTicks(durationRoll), 0);
         }
-        if (roll < 0.92) {
+        if (roll < noEffectThreshold + effectBand * 3.0) {
             return new ArrowPayload(ArrowEffect.NAUSEA, effectDurationTicks(durationRoll), 0);
         }
         return new ArrowPayload(ArrowEffect.BLINDNESS, effectDurationTicks(durationRoll), 0);
@@ -146,9 +226,10 @@ public final class SkeletonCombatPolicy {
             roll = 0.0;
         }
         roll = clamp(roll, 0.0, Math.nextDown(1.0));
-        final double minimum = 20.0;
-        final double maximum = 600.0;
-        final double scale = 140.0;
+        ThreatDirectorConfig.SkeletonSection config = ConfigAccess.current().modded().skeleton();
+        final double minimum = config.minimumEffectDurationTicks();
+        final double maximum = config.maximumEffectDurationTicks();
+        final double scale = Math.max(1.0, config.meanEffectDurationTicks() - minimum);
         double normalizer = 1.0 - Math.exp(-(maximum - minimum) / scale);
         double duration = minimum - scale * Math.log(1.0 - roll * normalizer);
         return (int) Math.max(minimum, Math.min(maximum, Math.round(duration)));
@@ -160,12 +241,26 @@ public final class SkeletonCombatPolicy {
             boolean canSeeTarget,
             int cooldownTicks,
             double squaredDistance) {
-        return difficultyId >= HARD_DIFFICULTY_ID
+        return canDash(
+                difficultyId, onGround, canSeeTarget, cooldownTicks, squaredDistance, false);
+    }
+
+    public static boolean canDash(
+            int difficultyId,
+            boolean onGround,
+            boolean canSeeTarget,
+            int cooldownTicks,
+            double squaredDistance,
+            boolean bloodMoon) {
+        return ConfigAccess.current().moddedEnabled()
+                && ConfigAccess.current().modded().skeleton().enabled()
+                && ConfigAccess.current().modded().skeleton().retreatDash()
+                && difficultyId >= HARD_DIFFICULTY_ID
                 && onGround
                 && canSeeTarget
                 && cooldownTicks <= 0
                 && squaredDistance >= MIN_DASH_DISTANCE_SQUARED
-                && squaredDistance <= HARD_DASH_DISTANCE_SQUARED;
+                && squaredDistance <= (bloodMoon ? HARD_DASH_DISTANCE_SQUARED : 25.0);
     }
 
     public static HorizontalDirection retreatDirection(

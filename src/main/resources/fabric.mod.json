@@ -3,7 +3,7 @@
   "id": "threatdirector",
   "version": "${version}",
   "name": "Threat Director",
-  "description": "Encuentros hostiles coordinados, adaptativos y tácticamente peligrosos.",
+  "description": "Adaptive hostile AI with Awareness, Traits, coordinated hordes, and Blood Moons.",
   "authors": [
     "AndresBlue"
   ],
@@ -15,9 +15,6 @@
     ],
     "client": [
       "com.andresblue.threatdirector.ThreatDirectorClient"
-    ],
-    "threatdirector-api-v1": [
-      "com.andresblue.threatdirector.api.v1.ThreatDirectorApiProvider"
     ]
   },
   "mixins": [

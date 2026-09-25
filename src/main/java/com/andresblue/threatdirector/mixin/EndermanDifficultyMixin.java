@@ -39,7 +39,7 @@ public abstract class EndermanDifficultyMixin {
         DifficultyAbilityPolicy.EndermanRules rules = MinecraftDifficultyProfiles.forWorld(world).enderman();
         LivingEntity target = self.getTarget();
         boolean threatActive = target instanceof ServerPlayerEntity player
-                && ThreatScaling.playerThreat(player) >= ThreatScaling.ACTIVATION_THREAT;
+                && ThreatScaling.playerThreat(player) >= ThreatScaling.activationThreat();
         boolean combatPosture = rules.twoBlockCombatPosture()
                 && threatActive
                 && target != null

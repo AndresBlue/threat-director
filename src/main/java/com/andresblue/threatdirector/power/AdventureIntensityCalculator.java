@@ -27,16 +27,12 @@ public final class AdventureIntensityCalculator {
                 + .25 * unit(signals.ticksSinceCombat() / 2_400.0)
                 + .20 * (1.0 - unit(signals.recentIntensityEma() / 100.0));
 
-        double maxHealth = Math.max(1.0, finiteNonNegative(signals.maxHealth()));
-        double damageRatio = unit(signals.damageTakenLast1200Ticks() / maxHealth);
-        double dominance = unit(signals.combatObservationConfidence())
-                * (.65 * unit(signals.hostileKillsLast1200Ticks() / 6.0) + .35 * (1.0 - damageRatio));
-
         // Time played and experience provide an inescapable progression pressure. A player can
         // delay gearing up, but cannot keep the world at its initial threat forever.
         double progression = .60 * unit(signals.playTimeProgress())
                 + .40 * unit(signals.experienceProgress());
 
+        double maxHealth = Math.max(1.0, finiteNonNegative(signals.maxHealth()));
         double effectiveHealth = finiteNonNegative(signals.currentHealth())
                 + Math.min(finiteNonNegative(signals.absorption()), maxHealth * .5);
         double missingHealth = 1.0 - unit(effectiveHealth / maxHealth);
@@ -54,14 +50,13 @@ public final class AdventureIntensityCalculator {
         double target = 100.0 * unit(.05 + .50 * strongestPower
                 + .50 * groupUplift * groupScale
                 + (.22 * environment + .13 * readiness) * contextScale
-                + .10 * dominance - .30 * distress * stressScale - .15 * load
+                - .30 * distress * stressScale - .15 * load
                 + .25 * unit(signals.playTimeProgress())
                 + .15 * unit(signals.experienceProgress()));
         return new AdventureIntensityBreakdown(
                 groupPower,
                 environment,
                 readiness,
-                dominance,
                 distress,
                 load,
                 unit(signals.playTimeProgress()),
